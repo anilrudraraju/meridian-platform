@@ -13,6 +13,7 @@ import re
 import json
 import requests
 import io
+import tempfile
 from datetime import datetime
 from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass
