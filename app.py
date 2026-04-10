@@ -673,10 +673,10 @@ class MarketDataFetcher:
 # STREAMLIT UI
 # ══════════════════════════════════════════════════════════════════════════════
 
-tab1, tab2, tab3 = st.tabs([
-    "📈 Portfolio Dashboard",
-    "📄 Document Intelligence / RAG",
-    "🛡️ Guardrails & Prompt Engine"
+tab_guardrails, tab_portfolio, tab_rag = st.tabs([
+    "🛡️ Layer 1 — Guardrails & Prompts",
+    "📈 Layer 2 — Portfolio Dashboard",
+    "📄 Layer 3 — Document RAG"
 ])
 
 
