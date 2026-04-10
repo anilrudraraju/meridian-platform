@@ -29,7 +29,6 @@ with st.sidebar:
     st.markdown("## 📊 Meridian Intelligence Platform")
     st.markdown("*Global Fiscal Group — Capstone*")
     st.divider()
-    
     try:
         api_key = st.secrets["OPENAI_API_KEY"]
         os.environ["OPENAI_API_KEY"] = api_key
@@ -41,7 +40,6 @@ with st.sidebar:
             st.success("✅ API Key set")
         else:
             st.warning("Enter OpenAI key to enable AI features")
-          
     st.divider()
 
     st.markdown("**🏗️ Platform Layers**")
@@ -370,9 +368,12 @@ class DocumentProcessor:
 
     def chunk_text(self, text: str, source: str) -> List[Dict]:
         """Returns list of {page_content, metadata} dicts — matches LangChain Document format"""
+        if not text or not text.strip():
+            return []
         chunks = []
         start = 0
         chunk_id = 0
+        step = max(1, self.chunk_size - self.chunk_overlap)  # prevent infinite loop
         while start < len(text):
             end = min(start + self.chunk_size, len(text))
             piece = text[start:end]
@@ -382,19 +383,35 @@ class DocumentProcessor:
                     "metadata": {"source": source, "chunk_id": chunk_id}
                 })
                 chunk_id += 1
-            start = end - self.chunk_overlap
+            start += step
         return chunks
 
     def load_from_text(self, text: str, source: str) -> List[Dict]:
         return self.chunk_text(text, source)
 
     def load_from_pdf_bytes(self, pdf_bytes: bytes, source: str) -> List[Dict]:
+        text = ""
         try:
             from pypdf import PdfReader
             reader = PdfReader(io.BytesIO(pdf_bytes))
-            text = "\n".join(page.extract_text() or "" for page in reader.pages)
-        except Exception:
-            text = pdf_bytes.decode("utf-8", errors="ignore")
+            pages_text = []
+            for page in reader.pages:
+                try:
+                    extracted = page.extract_text()
+                    if extracted:
+                        pages_text.append(extracted)
+                except Exception:
+                    continue
+            text = "\n".join(pages_text)
+        except Exception as e:
+            st.warning(f"PDF parsing issue for {source}: {str(e)[:100]}. Trying text fallback.")
+            try:
+                text = pdf_bytes.decode("utf-8", errors="ignore")
+            except Exception:
+                text = ""
+        if not text.strip():
+            st.error(f"Could not extract text from {source}. The PDF may be scanned/image-based. Try a text-based PDF.")
+            return []
         return self.chunk_text(text, source)
 
     def load_from_txt_bytes(self, txt_bytes: bytes, source: str) -> List[Dict]:
@@ -461,16 +478,26 @@ class RAGSystem:
         )
 
     def _embed(self, texts: List[str]) -> List[List[float]]:
-        """Call OpenAI embedding API in batches of 20."""
+        """Call OpenAI embedding API in batches of 20.
+        Truncates each text to 6000 chars (~1500 tokens) to stay within
+        ada-002 limit of 8191 tokens. 1000-char chunks are ~250 tokens so
+        this only triggers on unusually long EDGAR lines.
+        """
         import openai
         client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+        # Truncate to stay within token limit
+        safe_texts = [t[:6000] if len(t) > 6000 else t for t in texts]
         all_embeddings = []
-        for i in range(0, len(texts), 20):
-            resp = client.embeddings.create(
-                model="text-embedding-ada-002",
-                input=texts[i:i + 20]
-            )
-            all_embeddings.extend([item.embedding for item in resp.data])
+        for i in range(0, len(safe_texts), 20):
+            try:
+                resp = client.embeddings.create(
+                    model="text-embedding-ada-002",
+                    input=safe_texts[i:i + 20]
+                )
+                all_embeddings.extend([item.embedding for item in resp.data])
+            except Exception as e:
+                st.error(f"Embedding error on batch {i//20 + 1}: {str(e)[:100]}")
+                raise
         return all_embeddings
 
     # ── core methods (matching week3_capstone.ipynb public interface) ─────────
@@ -486,9 +513,10 @@ class RAGSystem:
         texts     = [c["page_content"] for c in chunks]
         metadatas = [c["metadata"]     for c in chunks]
 
-        # Build stable IDs from source + chunk_id so upsert is idempotent
+        # Build stable IDs — sanitize source name to avoid ChromaDB invalid ID errors
+        import hashlib
         ids = [
-            f"{m.get('source','doc')}__chunk_{m.get('chunk_id', i)}"[:512]
+            hashlib.md5(f"{m.get('source','doc')}__chunk_{m.get('chunk_id', i)}".encode()).hexdigest()
             for i, m in enumerate(metadatas)
         ]
         # ChromaDB metadata values must be str/int/float/bool
@@ -509,13 +537,15 @@ class RAGSystem:
                 text=f"Embedding {min(i+batch_size, len(texts))}/{len(texts)} chunks..."
             )
 
-        # Upsert in one call — ChromaDB handles batching internally
-        self._collection.upsert(
-            documents=texts,
-            embeddings=all_embeddings,
-            metadatas=safe_meta,
-            ids=ids
-        )
+        # Upsert in batches of 100 — avoids ChromaDB internal size limits
+        upsert_batch = 100
+        for i in range(0, len(texts), upsert_batch):
+            self._collection.upsert(
+                documents=texts[i:i+upsert_batch],
+                embeddings=all_embeddings[i:i+upsert_batch],
+                metadatas=safe_meta[i:i+upsert_batch],
+                ids=ids[i:i+upsert_batch]
+            )
         progress.empty()
 
     def search(self, query: str, k: int = 5) -> List[SearchResult]:
@@ -632,7 +662,12 @@ def fetch_edgar_filing(ticker: str, form_type: str = "10-K") -> Tuple[bool, str,
         if r3.status_code != 200:
             return False, "", f"Download failed (HTTP {r3.status_code}). Upload the PDF manually."
         clean = re.sub(r'<[^>]+>', ' ', r3.text)
-        clean = re.sub(r'\s+', ' ', clean).strip()[:120000]
+        # Cap at 300k chars (~75k tokens) — much larger than before, 
+        # still avoids memory issues. Show warning if truncated.
+        char_cap = 300000
+        if len(clean) > char_cap:
+            st.warning(f"Document truncated to {char_cap:,} chars for processing. Full filing may contain more.")
+        clean = clean[:char_cap]
         return True, clean, f"{company_name} {form_type} ({filing_date})"
     except Exception as e:
         return False, "", f"EDGAR error: {e}"
