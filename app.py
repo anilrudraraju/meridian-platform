@@ -138,7 +138,9 @@ class FinancialPromptEngine:
     """
 
     def __init__(self, model="gpt-4o"):
+        import openai
         self.model = model
+        self._client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
         self.token_costs = {
             "gpt-5":         {"prompt": 0.000625/1000, "completion": 0.005/1000},
             "o3":            {"prompt": 0.002/1000,    "completion": 0.008/1000},
@@ -152,10 +154,8 @@ class FinancialPromptEngine:
 
     def execute_prompt(self, prompt: str, temperature: float = 0.7,
                        max_tokens: int = 1000, technique: str = "zero-shot") -> Optional[PromptResult]:
-        import openai
         try:
-            client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
-            response = client.chat.completions.create(
+            response = self._client.chat.completions.create(
                 model=self.model,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=temperature,
@@ -165,6 +165,8 @@ class FinancialPromptEngine:
             tokens_used = response.usage.total_tokens
             p_tok = response.usage.prompt_tokens
             c_tok = response.usage.completion_tokens
+            if self.model not in self.token_costs:
+                st.warning(f"⚠️ No cost data for model '{self.model}' — using gpt-4o pricing as estimate.")
             costs = self.token_costs.get(self.model, self.token_costs["gpt-4o"])
             cost = p_tok * costs["prompt"] + c_tok * costs["completion"]
             return PromptResult(
@@ -288,13 +290,18 @@ class FinancialGuardrails:
     """Source: week1_capstone.ipynb"""
 
     def __init__(self):
-        self.ssn_pattern     = re.compile(r'\b\d{3}-\d{2}-\d{4}\b')
-        self.account_pattern = re.compile(r'\b\d{10,12}\b')
+        # SSN: with or without hyphens (e.g. 123-45-6789 or 123456789)
+        self.ssn_pattern     = re.compile(r'\b\d{3}-\d{2}-\d{4}\b|\b\d{9}\b')
+        # Account: 10-17 digits not preceded/followed by another digit (avoids dates/zip codes)
+        self.account_pattern = re.compile(r'(?<!\d)\d{10,17}(?!\d)')
+        # Phone: standard 10-digit US formats only
         self.phone_pattern   = re.compile(r'\b\d{3}[-.]?\d{3}[-.]?\d{4}\b')
         self.email_pattern   = re.compile(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b')
+        # Injection keywords — checked case-insensitively with word-boundary awareness
         self.injection_keywords = [
             'ignore previous instructions', 'disregard',
-            'forget all', 'new instructions', 'system prompt'
+            'forget all', 'new instructions', 'system prompt',
+            'ignore all instructions', 'override instructions'
         ]
         self.unauthorized_advice = [
             'you should buy', 'i recommend buying', 'guaranteed returns',
@@ -314,7 +321,7 @@ class FinancialGuardrails:
         if self.phone_pattern.search(user_input):
             violations.append("Phone number detected")
         for kw in self.injection_keywords:
-            if kw in user_input.lower():
+            if re.search(re.escape(kw), user_input, re.IGNORECASE):
                 violations.append(f"Potential prompt injection: '{kw}'")
         if violations:
             return GuardrailResult(passed=False, message="Input validation failed", violations=violations)
@@ -324,16 +331,30 @@ class FinancialGuardrails:
         violations = []
         modified = ai_output
         for phrase in self.unauthorized_advice:
-            if phrase in ai_output.lower():
+            if re.search(re.escape(phrase), ai_output, re.IGNORECASE):
                 violations.append(f"Unauthorized advice: '{phrase}'")
-        if "this is not financial advice" not in ai_output.lower():
-            modified += self.compliance_disclaimer
         if self.ssn_pattern.search(ai_output) or self.account_pattern.search(ai_output):
             violations.append("PII detected in output")
+        if violations:
+            # Block the response entirely rather than masking it with a disclaimer
+            modified = (
+                "⚠️ Response blocked by compliance guardrails: "
+                + "; ".join(violations)
+                + self.compliance_disclaimer
+            )
+            return GuardrailResult(
+                passed=False,
+                message="Output blocked by compliance guardrails",
+                violations=violations,
+                modified_content=modified
+            )
+        # No violations — append disclaimer if not already present
+        if "this is not financial advice" not in ai_output.lower():
+            modified += self.compliance_disclaimer
         return GuardrailResult(
-            passed=len(violations) == 0,
-            message="Output validated" if not violations else "Output validation issues",
-            violations=violations,
+            passed=True,
+            message="Output validated",
+            violations=[],
             modified_content=modified
         )
 
@@ -371,6 +392,7 @@ class DocumentProcessor:
         if not text or not text.strip():
             return []
         chunks = []
+        discarded = 0
         start = 0
         chunk_id = 0
         step = max(1, self.chunk_size - self.chunk_overlap)  # prevent infinite loop
@@ -383,7 +405,11 @@ class DocumentProcessor:
                     "metadata": {"source": source, "chunk_id": chunk_id}
                 })
                 chunk_id += 1
+            else:
+                discarded += 1
             start += step
+        if discarded > 0:
+            st.caption(f"ℹ️ {discarded} chunk(s) from '{source}' were too short (<50 chars) and skipped.")
         return chunks
 
     def load_from_text(self, text: str, source: str) -> List[Dict]:
@@ -418,15 +444,15 @@ class DocumentProcessor:
                                     )
                                     if clean_row.strip(" |"):
                                         page_parts.append(clean_row)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        st.caption(f"⚠️ Table extraction skipped on a page of '{source}': {str(e)[:80]}")
                     # 2. Extract remaining prose text
                     try:
                         prose = page.extract_text()
                         if prose:
                             page_parts.append(prose)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        st.caption(f"⚠️ Text extraction skipped on a page of '{source}': {str(e)[:80]}")
                     if page_parts:
                         pages_text.append("\n".join(page_parts))
             text = "\n".join(pages_text)
@@ -442,12 +468,13 @@ class DocumentProcessor:
                 from pypdf import PdfReader
                 reader = PdfReader(io.BytesIO(pdf_bytes))
                 pages_text = []
-                for page in reader.pages:
+                for page_num, page in enumerate(reader.pages):
                     try:
                         extracted = page.extract_text()
                         if extracted:
                             pages_text.append(extracted)
-                    except Exception:
+                    except Exception as e:
+                        st.caption(f"⚠️ pypdf skipped page {page_num + 1} of '{source}': {str(e)[:80]}")
                         continue
                 text = "\n".join(pages_text)
             except Exception as e:
@@ -501,14 +528,15 @@ class RAGSystem:
     """
 
     def __init__(self, model: str = "gpt-4"):
+        import openai, chromadb
         self.model = model
+        self._openai = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
         # PersistentClient writes a chroma.sqlite3 file to CHROMA_PERSIST_DIR.
         # On Streamlit Cloud this persists within a single deployment session.
         # Locally it persists indefinitely across runs.
-        import chromadb
         os.makedirs(CHROMA_PERSIST_DIR, exist_ok=True)
-        self._client = chromadb.PersistentClient(path=CHROMA_PERSIST_DIR)
-        self._collection = self._client.get_or_create_collection(
+        self._chroma = chromadb.PersistentClient(path=CHROMA_PERSIST_DIR)
+        self._collection = self._chroma.get_or_create_collection(
             name=CHROMA_COLLECTION,
             metadata={"hnsw:space": "cosine"}   # native cosine similarity
         )
@@ -524,9 +552,8 @@ class RAGSystem:
 
     def clear(self) -> None:
         """Delete and recreate the collection (wipe all documents)."""
-        import chromadb
-        self._client.delete_collection(CHROMA_COLLECTION)
-        self._collection = self._client.get_or_create_collection(
+        self._chroma.delete_collection(CHROMA_COLLECTION)
+        self._collection = self._chroma.get_or_create_collection(
             name=CHROMA_COLLECTION,
             metadata={"hnsw:space": "cosine"}
         )
@@ -537,20 +564,19 @@ class RAGSystem:
         ada-002 limit of 8191 tokens. 1000-char chunks are ~250 tokens so
         this only triggers on unusually long EDGAR lines.
         """
-        import openai
-        client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
         # Truncate to stay within token limit
         safe_texts = [t[:6000] if len(t) > 6000 else t for t in texts]
         all_embeddings = []
         for i in range(0, len(safe_texts), 20):
+            batch_num = i // 20 + 1
             try:
-                resp = client.embeddings.create(
+                resp = self._openai.embeddings.create(
                     model="text-embedding-ada-002",
                     input=safe_texts[i:i + 20]
                 )
                 all_embeddings.extend([item.embedding for item in resp.data])
             except Exception as e:
-                st.error(f"Embedding error on batch {i//20 + 1}: {str(e)[:100]}")
+                st.error(f"Embedding error on batch {batch_num}: {e}")
                 raise
         return all_embeddings
 
@@ -560,12 +586,19 @@ class RAGSystem:
         """
         Embed chunks and upsert into ChromaDB.
         chunks: list of {page_content, metadata} dicts  (DocumentProcessor output)
-        Uses upsert so re-indexing the same document is safe (no duplicate IDs).
+        Uses upsert so re-indexing the same document overwrites existing chunks.
         """
-        import openai
-
         texts     = [c["page_content"] for c in chunks]
         metadatas = [c["metadata"]     for c in chunks]
+
+        # Warn if any source being indexed already exists in the collection
+        if self._collection.count() > 0:
+            incoming_sources = {m.get("source", "") for m in metadatas}
+            existing = self._collection.get(include=["metadatas"])
+            existing_sources = {m.get("source", "") for m in existing["metadatas"]}
+            overlap = incoming_sources & existing_sources
+            if overlap:
+                st.warning(f"⚠️ Re-indexing existing document(s): {', '.join(overlap)}. Previous chunks will be overwritten.")
 
         # Build stable IDs — sanitize source name to avoid ChromaDB invalid ID errors
         import hashlib
@@ -619,9 +652,9 @@ class RAGSystem:
         )
 
         search_results = []
-        docs      = results["documents"][0]
-        metas     = results["metadatas"][0]
-        distances = results["distances"][0]
+        docs      = results.get("documents", [[]])[0] if results.get("documents") else []
+        metas     = results.get("metadatas", [[]])[0] if results.get("metadatas") else []
+        distances = results.get("distances", [[]])[0] if results.get("distances") else []
 
         for doc, meta, dist in zip(docs, metas, distances):
             # Convert ChromaDB cosine distance → similarity score (0–1, higher = better)
@@ -639,9 +672,15 @@ class RAGSystem:
         RAG Q&A — returns RAGResponse matching week3_capstone.ipynb exactly.
         Confidence: High (>0.80) / Medium (>0.70) / Low based on avg similarity.
         """
-        import openai
-
         results = self.search(question, k=k)
+        if not results:
+            return RAGResponse(
+                question=question,
+                answer="I don't have enough information to answer this question — no relevant chunks were found in the index.",
+                sources=[],
+                confidence="Low"
+            )
+
         context = "\n\n".join([
             f"[Source {i+1}]\n{r.content}" for i, r in enumerate(results)
         ])
@@ -660,8 +699,7 @@ Question: {question}
 
 Answer (with source citations):"""
 
-        client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
-        resp = client.chat.completions.create(
+        resp = self._openai.chat.completions.create(
             model=self.model,
             messages=[{"role": "user", "content": prompt}],
             temperature=0
@@ -707,6 +745,8 @@ def fetch_edgar_filing(ticker: str, form_type: str = "10-K") -> Tuple[bool, str,
         idx = next((i for i, f in enumerate(forms) if f == form_type), None)
         if idx is None:
             return False, "", f"No {form_type} found for {ticker}"
+        if idx >= len(accessions) or idx >= len(dates):
+            return False, "", f"SEC data for {ticker} is inconsistent (lists have different lengths). Try a different form type."
 
         raw_acc = accessions[idx]
         acc_no = raw_acc.replace("-", "")
@@ -745,18 +785,25 @@ class MarketDataFetcher:
                 if hist.empty:
                     errors.append(ticker); continue
                 price = hist["Close"].iloc[-1]
-                prev  = hist["Close"].iloc[-2] if len(hist) >= 2 else price
+                has_prev = len(hist) >= 2
+                prev = hist["Close"].iloc[-2] if has_prev else price
+                day_chg = round((price - prev) / prev * 100, 2) if prev and prev != 0 else 0.0
+                if not has_prev:
+                    errors.append(f"{ticker}: only 1 day of history — day change shown as 0%")
+
                 hist_1y = stock.history(period="1y")
-                ytd = ((hist_1y["Close"].iloc[-1] - hist_1y["Close"].iloc[0])
-                       / hist_1y["Close"].iloc[0] * 100) if len(hist_1y) >= 2 else 0.0
+                first_close = hist_1y["Close"].iloc[0] if len(hist_1y) >= 2 else None
+                ytd = (round((hist_1y["Close"].iloc[-1] - first_close) / first_close * 100, 2)
+                       if first_close and first_close != 0 else 0.0)
+
                 value = price * shares
                 results.append({
                     "Ticker": ticker, "Shares": shares,
                     "Price ($)": round(price, 2),
-                    "Day Chg %": round((price - prev) / prev * 100, 2),
+                    "Day Chg %": day_chg,
                     "Value ($)": round(value, 2),
-                    "1Y Return %": round(ytd, 2),
-                    "Sector": info.get("sector", "N/A"),
+                    "1Y Return %": ytd,
+                    "Sector": info.get("sector") or "N/A",
                     "Beta": round(info.get("beta") or 0, 2),
                 })
                 total_value += value
@@ -811,11 +858,16 @@ with tab_portfolio:
             results, total_value, errors = fetcher.fetch_portfolio(portfolio)
 
         if errors:
-            st.warning(f"Could not fetch: {', '.join(errors)}")
+            st.warning(f"⚠️ Could not fetch: {', '.join(errors)}")
 
         if results:
+            if total_value == 0:
+                st.error("Total portfolio value is $0 — no valid prices could be fetched.")
+                st.stop()
             df = pd.DataFrame(results)
             df["Weight %"] = (df["Value ($)"] / total_value * 100).round(2)
+            if errors:
+                st.caption("ℹ️ Weight % is based on successfully fetched tickers only and may not sum to 100% of your intended portfolio.")
 
             k1, k2, k3, k4 = st.columns(4)
             k1.metric("Total Value",   f"${total_value:,.2f}")
@@ -972,6 +1024,9 @@ with tab_rag:
 
         if st.button("🔍 Search & Answer", type="primary", disabled=not final_q):
             rag: RAGSystem = st.session_state.rag_system
+            if rag is None:
+                st.error("RAG system is not initialized. Please index documents first.")
+                st.stop()
             with st.spinner("Running RAGSystem.answer_question()..."):
                 response: RAGResponse = rag.answer_question(final_q, k=5)
 
