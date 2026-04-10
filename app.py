@@ -664,7 +664,7 @@ Answer (with source citations):"""
         resp = client.chat.completions.create(
             model=self.model,
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.3
+            temperature=0
         )
         answer = resp.choices[0].message.content
         avg_score = sum(r.relevance_score for r in results) / len(results)
