@@ -140,14 +140,14 @@ class FinancialPromptEngine:
     def __init__(self, model="gpt-4o"):
         self.model = model
         self.token_costs = {
-            "gpt-5":         {"prompt": 0.00125/1000, "completion": 0.010/1000},
-            "o3":            {"prompt": 0.002/1000,   "completion": 0.008/1000},
-            "o3-mini":       {"prompt": 0.0011/1000,  "completion": 0.0044/1000},
-            "gpt-4o":        {"prompt": 0.0025/1000,  "completion": 0.010/1000},
-            "gpt-4":         {"prompt": 0.0025/1000,  "completion": 0.010/1000},
-            "gpt-4o-mini":   {"prompt": 0.00015/1000, "completion": 0.0006/1000},
-            "gpt-4.1-nano":  {"prompt": 0.0001/1000,  "completion": 0.0004/1000},
-            "gpt-3.5-turbo": {"prompt": 0.0005/1000,  "completion": 0.0015/1000},
+            "gpt-5":         {"prompt": 0.000625/1000, "completion": 0.005/1000},
+            "o3":            {"prompt": 0.002/1000,    "completion": 0.008/1000},
+            "o3-mini":       {"prompt": 0.00055/1000,  "completion": 0.0022/1000},
+            "gpt-4o":        {"prompt": 0.0025/1000,   "completion": 0.010/1000},
+            "gpt-4":         {"prompt": 0.030/1000,    "completion": 0.060/1000},
+            "gpt-4o-mini":   {"prompt": 0.00015/1000,  "completion": 0.0006/1000},
+            "gpt-4.1-nano":  {"prompt": 0.0001/1000,   "completion": 0.0004/1000},
+            "gpt-3.5-turbo": {"prompt": 0.0005/1000,   "completion": 0.001/1000},
         }
 
     def execute_prompt(self, prompt: str, temperature: float = 0.7,
