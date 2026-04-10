@@ -29,9 +29,10 @@ with st.sidebar:
     st.markdown("## 📊 Meridian Intelligence Platform")
     st.markdown("*Global Fiscal Group — Capstone*")
     st.divider()
-    api_key = st.text_input("🔑 OpenAI API Key", type="password")
+    # Try Streamlit secrets first (deployed), fall back to manual input (local)
+    api_key = st.secrets.get("OPENAI_API_KEY", "") or st.text_input("🔑 OpenAI API Key", type="password")
     if api_key:
-        os.environ["OPENAI_API_KEY"] = api_key
+        I os.environ["OPENAI_API_KEY"] = api_key
         st.success("✅ API Key set")
     else:
         st.warning("Enter OpenAI key to enable AI features")
