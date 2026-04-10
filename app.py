@@ -13,7 +13,6 @@ import re
 import json
 import requests
 import io
-import tempfile
 from datetime import datetime
 from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass
@@ -30,8 +29,7 @@ with st.sidebar:
     st.markdown("## 📊 Meridian Intelligence Platform")
     st.markdown("*Global Fiscal Group — Capstone*")
     st.divider()
-    # Try Streamlit secrets first (deployed), fall back to manual input (local)
-    api_key = st.secrets.get("OPENAI_API_KEY", "") or st.text_input("🔑 OpenAI API Key", type="password")
+    api_key = st.text_input("🔑 OpenAI API Key", type="password")
     if api_key:
         os.environ["OPENAI_API_KEY"] = api_key
         st.success("✅ API Key set")
@@ -410,7 +408,7 @@ class DocumentProcessor:
 # We convert to similarity score [0, 1] via:  score = 1 - (distance / 2)
 # ══════════════════════════════════════════════════════════════════════════════
 
-CHROMA_PERSIST_DIR = os.path.join(tempfile.gettempdir(), "meridian_chromadb")
+CHROMA_PERSIST_DIR = os.path.join(os.path.expanduser("~"), ".meridian_chromadb")
 CHROMA_COLLECTION   = "meridian_docs"
 
 
@@ -676,14 +674,14 @@ class MarketDataFetcher:
 # ══════════════════════════════════════════════════════════════════════════════
 
 tab1, tab2, tab3 = st.tabs([
-    "🛡️ Layer 1 — Guardrails & Prompt Engine",
-    "📈 Layer 2 — Portfolio Dashboard",
-    "📄 Layer 3 — Document Intelligence / RAG"
+    "📈 Portfolio Dashboard",
+    "📄 Document Intelligence / RAG",
+    "🛡️ Guardrails & Prompt Engine"
 ])
 
 
-# ─── TAB 2 ────────────────────────────────────────────────────────────────────
-with tab2:
+# ─── TAB 1 ────────────────────────────────────────────────────────────────────
+with tab_portfolio:
     st.header("📈 Real-Time Portfolio Dashboard")
     st.caption("Milestone 3.1 — MarketDataFetcher · yfinance · FinancialPromptEngine")
 
@@ -749,8 +747,8 @@ with tab2:
                     st.markdown(res2.response)
 
 
-# ─── TAB 3 ────────────────────────────────────────────────────────────────────
-with tab3:
+# ─── TAB 2 ────────────────────────────────────────────────────────────────────
+with tab_rag:
     st.header("📄 Document Intelligence & RAG")
     st.caption("Milestone 3.2 — DocumentProcessor · RAGSystem · SearchResult · RAGResponse")
 
@@ -916,8 +914,8 @@ with tab3:
             )
 
 
-# ─── TAB 1 ────────────────────────────────────────────────────────────────────
-with tab1:
+# ─── TAB 3 ────────────────────────────────────────────────────────────────────
+with tab_guardrails:
     st.header("🛡️ Guardrails & Prompt Engine")
     st.caption("Layer 1 — FinancialGuardrails · FinancialPromptEngine · All 5 prompt techniques")
 
