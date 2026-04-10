@@ -676,14 +676,14 @@ class MarketDataFetcher:
 # ══════════════════════════════════════════════════════════════════════════════
 
 tab1, tab2, tab3 = st.tabs([
-    "📈 Portfolio Dashboard",
-    "📄 Document Intelligence / RAG",
-    "🛡️ Guardrails & Prompt Engine"
+    "🛡️ Layer 1 — Guardrails & Prompt Engine",
+    "📈 Layer 2 — Portfolio Dashboard",
+    "📄 Layer 3 — Document Intelligence / RAG"
 ])
 
 
-# ─── TAB 1 ────────────────────────────────────────────────────────────────────
-with tab1:
+# ─── TAB 2 ────────────────────────────────────────────────────────────────────
+with tab2:
     st.header("📈 Real-Time Portfolio Dashboard")
     st.caption("Milestone 3.1 — MarketDataFetcher · yfinance · FinancialPromptEngine")
 
@@ -749,8 +749,8 @@ with tab1:
                     st.markdown(res2.response)
 
 
-# ─── TAB 2 ────────────────────────────────────────────────────────────────────
-with tab2:
+# ─── TAB 3 ────────────────────────────────────────────────────────────────────
+with tab3:
     st.header("📄 Document Intelligence & RAG")
     st.caption("Milestone 3.2 — DocumentProcessor · RAGSystem · SearchResult · RAGResponse")
 
@@ -916,8 +916,8 @@ with tab2:
             )
 
 
-# ─── TAB 3 ────────────────────────────────────────────────────────────────────
-with tab3:
+# ─── TAB 1 ────────────────────────────────────────────────────────────────────
+with tab1:
     st.header("🛡️ Guardrails & Prompt Engine")
     st.caption("Layer 1 — FinancialGuardrails · FinancialPromptEngine · All 5 prompt techniques")
 
