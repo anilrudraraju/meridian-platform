@@ -29,19 +29,19 @@ with st.sidebar:
     st.markdown("## 📊 Meridian Intelligence Platform")
     st.markdown("*Global Fiscal Group — Capstone*")
     st.divider()
-  
+    
     try:
-    api_key = st.secrets["OPENAI_API_KEY"]
-    os.environ["OPENAI_API_KEY"] = api_key
-    st.success("✅ API Key set")
-   except:
-    api_key = st.text_input("🔑 OpenAI API Key", type="password")
-    if api_key:
+        api_key = st.secrets["OPENAI_API_KEY"]
         os.environ["OPENAI_API_KEY"] = api_key
         st.success("✅ API Key set")
-    else:
-        st.warning("Enter OpenAI key to enable AI features")
-      
+    except:
+        api_key = st.text_input("🔑 OpenAI API Key", type="password")
+        if api_key:
+            os.environ["OPENAI_API_KEY"] = api_key
+            st.success("✅ API Key set")
+        else:
+            st.warning("Enter OpenAI key to enable AI features")
+          
     st.divider()
 
     st.markdown("**🏗️ Platform Layers**")
