@@ -409,7 +409,7 @@ class DocumentProcessor:
 # We convert to similarity score [0, 1] via:  score = 1 - (distance / 2)
 # ══════════════════════════════════════════════════════════════════════════════
 
-CHROMA_PERSIST_DIR = os.path.join(os.path.expanduser("~"), ".meridian_chromadb")
+CHROMA_PERSIST_DIR = os.path.join(tempfile.gettempdir(), "meridian_chromadb")
 CHROMA_COLLECTION   = "meridian_docs"
 
 
