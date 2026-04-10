@@ -390,28 +390,82 @@ class DocumentProcessor:
         return self.chunk_text(text, source)
 
     def load_from_pdf_bytes(self, pdf_bytes: bytes, source: str) -> List[Dict]:
+        """
+        Table-aware PDF extraction using pdfplumber (primary) with pypdf fallback.
+        pdfplumber reconstructs table rows as pipe-delimited text so that values
+        like 'Total revenues | $ | 23,550' stay in the same chunk as their label.
+        Falls back to pypdf if pdfplumber is not installed or fails.
+        """
         text = ""
+        used_pdfplumber = False
+
+        # ── Primary: pdfplumber (table-aware) ────────────────────────────────
         try:
-            from pypdf import PdfReader
-            reader = PdfReader(io.BytesIO(pdf_bytes))
+            import pdfplumber
             pages_text = []
-            for page in reader.pages:
-                try:
-                    extracted = page.extract_text()
-                    if extracted:
-                        pages_text.append(extracted)
-                except Exception:
-                    continue
+            with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+                for page in pdf.pages:
+                    page_parts = []
+                    # 1. Extract tables first — keeps label + number on same line
+                    try:
+                        tables = page.extract_tables()
+                        for table in tables:
+                            for row in table:
+                                if row:
+                                    clean_row = " | ".join(
+                                        cell.strip() if cell else ""
+                                        for cell in row
+                                    )
+                                    if clean_row.strip(" |"):
+                                        page_parts.append(clean_row)
+                    except Exception:
+                        pass
+                    # 2. Extract remaining prose text
+                    try:
+                        prose = page.extract_text()
+                        if prose:
+                            page_parts.append(prose)
+                    except Exception:
+                        pass
+                    if page_parts:
+                        pages_text.append("\n".join(page_parts))
             text = "\n".join(pages_text)
+            used_pdfplumber = True
+        except ImportError:
+            st.info("pdfplumber not available — using pypdf (tables may not parse correctly). Add pdfplumber to requirements.txt for best results.")
         except Exception as e:
-            st.warning(f"PDF parsing issue for {source}: {str(e)[:100]}. Trying text fallback.")
-            try:
-                text = pdf_bytes.decode("utf-8", errors="ignore")
-            except Exception:
-                text = ""
+            st.warning(f"pdfplumber failed for {source}: {str(e)[:100]}. Falling back to pypdf.")
+
+        # ── Fallback: pypdf (text-only) ───────────────────────────────────────
         if not text.strip():
-            st.error(f"Could not extract text from {source}. The PDF may be scanned/image-based. Try a text-based PDF.")
+            try:
+                from pypdf import PdfReader
+                reader = PdfReader(io.BytesIO(pdf_bytes))
+                pages_text = []
+                for page in reader.pages:
+                    try:
+                        extracted = page.extract_text()
+                        if extracted:
+                            pages_text.append(extracted)
+                    except Exception:
+                        continue
+                text = "\n".join(pages_text)
+            except Exception as e:
+                st.warning(f"pypdf fallback also failed for {source}: {str(e)[:100]}.")
+                try:
+                    text = pdf_bytes.decode("utf-8", errors="ignore")
+                except Exception:
+                    text = ""
+
+        if not text.strip():
+            st.error(
+                f"Could not extract text from {source}. "
+                "The PDF may be scanned/image-based. Try a text-based PDF."
+            )
             return []
+
+        parser_used = "pdfplumber (table-aware)" if used_pdfplumber else "pypdf (text-only)"
+        st.caption(f"📄 Parsed with **{parser_used}** — {len(text):,} chars extracted")
         return self.chunk_text(text, source)
 
     def load_from_txt_bytes(self, txt_bytes: bytes, source: str) -> List[Dict]:
