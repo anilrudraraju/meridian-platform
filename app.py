@@ -558,21 +558,23 @@ class RAGSystem:
             metadata={"hnsw:space": "cosine"}
         )
 
-    def _embed(self, texts: List[str]) -> List[List[float]]:
-        """Call OpenAI embedding API in batches of 20.
+    def _embed(self, texts: List[str], batch_size: int = 100) -> List[List[float]]:
+        """Call OpenAI embedding API in batches.
         Truncates each text to 6000 chars (~1500 tokens) to stay within
-        ada-002 limit of 8191 tokens. 1000-char chunks are ~250 tokens so
+        ada-002 limit of 8191 tokens per item. 1000-char chunks are ~250 tokens so
         this only triggers on unusually long EDGAR lines.
+        batch_size=100 keeps total request size well under API limits while
+        reducing network round-trips vs. the old batch_size=20.
         """
-        # Truncate to stay within token limit
+        # Truncate to stay within per-item token limit
         safe_texts = [t[:6000] if len(t) > 6000 else t for t in texts]
         all_embeddings = []
-        for i in range(0, len(safe_texts), 20):
-            batch_num = i // 20 + 1
+        for i in range(0, len(safe_texts), batch_size):
+            batch_num = i // batch_size + 1
             try:
                 resp = self._openai.embeddings.create(
                     model="text-embedding-ada-002",
-                    input=safe_texts[i:i + 20]
+                    input=safe_texts[i:i + batch_size]
                 )
                 all_embeddings.extend([item.embedding for item in resp.data])
             except Exception as e:
@@ -613,16 +615,9 @@ class RAGSystem:
             for m in metadatas
         ]
 
-        progress = st.progress(0, text="Creating embeddings (text-embedding-ada-002)...")
-        all_embeddings = []
-        batch_size = 20
-        for i in range(0, len(texts), batch_size):
-            batch_embs = self._embed(texts[i:i + batch_size])
-            all_embeddings.extend(batch_embs)
-            progress.progress(
-                min((i + batch_size) / len(texts), 1.0),
-                text=f"Embedding {min(i+batch_size, len(texts))}/{len(texts)} chunks..."
-            )
+        progress = st.progress(0, text=f"Creating embeddings for {len(texts)} chunks (text-embedding-ada-002)...")
+        all_embeddings = self._embed(texts)
+        progress.progress(1.0, text=f"Embeddings complete — {len(texts)} chunks embedded.")
 
         # Upsert in batches of 100 — avoids ChromaDB internal size limits
         upsert_batch = 100
