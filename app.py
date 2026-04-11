@@ -415,54 +415,54 @@ class DocumentProcessor:
     def load_from_text(self, text: str, source: str) -> List[Dict]:
         return self.chunk_text(text, source)
 
-    def load_from_pdf_bytes(self, pdf_bytes: bytes, source: str) -> List[Dict]:
+    def load_from_pdf_bytes(self, pdf_bytes: bytes, source: str,
+                            table_aware: bool = False) -> List[Dict]:
         """
-        Table-aware PDF extraction using pdfplumber (primary) with pypdf fallback.
-        pdfplumber reconstructs table rows as pipe-delimited text so that values
-        like 'Total revenues | $ | 23,550' stay in the same chunk as their label.
-        Falls back to pypdf if pdfplumber is not installed or fails.
+        PDF extraction with two modes:
+        - Fast mode (default): pypdf — ~15-30s even for large 10-Qs.
+        - Table-aware mode (opt-in): pdfplumber — preserves table structure but
+          can take 2+ minutes on large documents (100+ pages).
         """
         text = ""
         used_pdfplumber = False
 
-        # ── Primary: pdfplumber (table-aware) ────────────────────────────────
-        try:
-            import pdfplumber
-            pages_text = []
-            with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
-                for page in pdf.pages:
-                    page_parts = []
-                    # 1. Extract tables first — keeps label + number on same line
-                    try:
-                        tables = page.extract_tables()
-                        for table in tables:
-                            for row in table:
-                                if row:
-                                    clean_row = " | ".join(
-                                        cell.strip() if cell else ""
-                                        for cell in row
-                                    )
-                                    if clean_row.strip(" |"):
-                                        page_parts.append(clean_row)
-                    except Exception as e:
-                        st.caption(f"⚠️ Table extraction skipped on a page of '{source}': {str(e)[:80]}")
-                    # 2. Extract remaining prose text
-                    try:
-                        prose = page.extract_text()
-                        if prose:
-                            page_parts.append(prose)
-                    except Exception as e:
-                        st.caption(f"⚠️ Text extraction skipped on a page of '{source}': {str(e)[:80]}")
-                    if page_parts:
-                        pages_text.append("\n".join(page_parts))
-            text = "\n".join(pages_text)
-            used_pdfplumber = True
-        except ImportError:
-            st.info("pdfplumber not available — using pypdf (tables may not parse correctly). Add pdfplumber to requirements.txt for best results.")
-        except Exception as e:
-            st.warning(f"pdfplumber failed for {source}: {str(e)[:100]}. Falling back to pypdf.")
+        # ── Table-aware mode: pdfplumber ──────────────────────────────────────
+        if table_aware:
+            try:
+                import pdfplumber
+                pages_text = []
+                with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+                    for page in pdf.pages:
+                        page_parts = []
+                        try:
+                            tables = page.extract_tables()
+                            for table in tables:
+                                for row in table:
+                                    if row:
+                                        clean_row = " | ".join(
+                                            cell.strip() if cell else ""
+                                            for cell in row
+                                        )
+                                        if clean_row.strip(" |"):
+                                            page_parts.append(clean_row)
+                        except Exception as e:
+                            st.caption(f"⚠️ Table extraction skipped on a page of '{source}': {str(e)[:80]}")
+                        try:
+                            prose = page.extract_text()
+                            if prose:
+                                page_parts.append(prose)
+                        except Exception as e:
+                            st.caption(f"⚠️ Text extraction skipped on a page of '{source}': {str(e)[:80]}")
+                        if page_parts:
+                            pages_text.append("\n".join(page_parts))
+                text = "\n".join(pages_text)
+                used_pdfplumber = True
+            except ImportError:
+                st.warning("pdfplumber not installed — falling back to fast mode.")
+            except Exception as e:
+                st.warning(f"pdfplumber failed for '{source}': {str(e)[:100]}. Falling back to fast mode.")
 
-        # ── Fallback: pypdf (text-only) ───────────────────────────────────────
+        # ── Fast mode: pypdf (primary, or fallback from pdfplumber) ──────────
         if not text.strip():
             try:
                 from pypdf import PdfReader
@@ -478,7 +478,7 @@ class DocumentProcessor:
                         continue
                 text = "\n".join(pages_text)
             except Exception as e:
-                st.warning(f"pypdf fallback also failed for {source}: {str(e)[:100]}.")
+                st.warning(f"PDF extraction failed for '{source}': {str(e)[:100]}.")
                 try:
                     text = pdf_bytes.decode("utf-8", errors="ignore")
                 except Exception:
@@ -491,7 +491,7 @@ class DocumentProcessor:
             )
             return []
 
-        parser_used = "pdfplumber (table-aware)" if used_pdfplumber else "pypdf (text-only)"
+        parser_used = "pdfplumber (table-aware)" if used_pdfplumber else "pypdf (fast)"
         st.caption(f"📄 Parsed with **{parser_used}** — {len(text):,} chars extracted")
         return self.chunk_text(text, source)
 
@@ -931,11 +931,16 @@ with tab_rag:
     with s2:
         st.markdown("#### 📁 Upload PDF or TXT")
         uploaded = st.file_uploader("Upload documents", type=["pdf", "txt"], accept_multiple_files=True)
+        table_aware = st.checkbox(
+            "🐢 Table-aware extraction (pdfplumber — slower but preserves table structure)",
+            value=False,
+            help="Unchecked = fast mode via pypdf (~15-30s per file). Checked = pdfplumber table extraction (2+ mins for large 10-Qs)."
+        )
         if uploaded:
             for f in uploaded:
                 if not any(d["source"] == f.name for d in st.session_state.loaded_docs):
                     with st.spinner(f"Processing {f.name}..."):
-                        chunks = (processor.load_from_pdf_bytes(f.read(), f.name)
+                        chunks = (processor.load_from_pdf_bytes(f.read(), f.name, table_aware=table_aware)
                                   if f.name.endswith(".pdf")
                                   else processor.load_from_txt_bytes(f.read(), f.name))
                     st.session_state.all_chunks.extend(chunks)
