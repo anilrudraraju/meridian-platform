@@ -24,6 +24,9 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+if "active_layer" not in st.session_state:
+    st.session_state.active_layer = "portfolio"
+
 # ── Sidebar ────────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("## 📊 Meridian Intelligence Platform")
@@ -44,12 +47,23 @@ with st.sidebar:
 
     st.markdown("**🏗️ Platform Layers**")
 
-    # Weeks 1-3 — built
-    st.markdown("✅ **Layer 1** — Prompt Engineering + Guardrails")
+    # Weeks 1-3 — built (clickable nav)
+    if st.button("✅ Layer 1 — Guardrails & Prompts", use_container_width=True,
+                 type="primary" if st.session_state.active_layer == "guardrails" else "secondary"):
+        st.session_state.active_layer = "guardrails"
+        st.rerun()
     st.caption("FinancialPromptEngine · 5 techniques · FinancialGuardrails")
-    st.markdown("✅ **Layer 2** — Real-Time Market Intelligence")
+
+    if st.button("✅ Layer 2 — Portfolio Dashboard", use_container_width=True,
+                 type="primary" if st.session_state.active_layer == "portfolio" else "secondary"):
+        st.session_state.active_layer = "portfolio"
+        st.rerun()
     st.caption("MarketDataFetcher · yfinance · Live portfolio valuation")
-    st.markdown("✅ **Layer 3** — Document Intelligence + RAG")
+
+    if st.button("✅ Layer 3 — Document RAG", use_container_width=True,
+                 type="primary" if st.session_state.active_layer == "rag" else "secondary"):
+        st.session_state.active_layer = "rag"
+        st.rerun()
     st.caption("DocumentProcessor · RAGSystem · EDGAR 10-K auto-fetch")
 
     st.divider()
@@ -811,15 +825,8 @@ class MarketDataFetcher:
 # STREAMLIT UI
 # ══════════════════════════════════════════════════════════════════════════════
 
-tab_guardrails, tab_portfolio, tab_rag = st.tabs([
-    "🛡️ Layer 1 — Guardrails & Prompts",
-    "📈 Layer 2 — Portfolio Dashboard",
-    "📄 Layer 3 — Document RAG"
-])
-
-
-# ─── TAB 1 ────────────────────────────────────────────────────────────────────
-with tab_portfolio:
+# ─── Layer 2 — Portfolio ──────────────────────────────────────────────────────
+if st.session_state.active_layer == "portfolio":
     st.header("📈 Real-Time Portfolio Dashboard")
     st.caption("Milestone 3.1 — MarketDataFetcher · yfinance · FinancialPromptEngine")
 
@@ -890,8 +897,8 @@ with tab_portfolio:
                     st.markdown(res2.response)
 
 
-# ─── TAB 2 ────────────────────────────────────────────────────────────────────
-with tab_rag:
+# ─── Layer 3 — RAG ───────────────────────────────────────────────────────────
+if st.session_state.active_layer == "rag":
     st.header("📄 Document Intelligence & RAG")
     st.caption("Milestone 3.2 — DocumentProcessor · RAGSystem · SearchResult · RAGResponse")
 
@@ -1065,8 +1072,8 @@ with tab_rag:
             )
 
 
-# ─── TAB 3 ────────────────────────────────────────────────────────────────────
-with tab_guardrails:
+# ─── Layer 1 — Guardrails ────────────────────────────────────────────────────
+if st.session_state.active_layer == "guardrails":
     st.header("🛡️ Guardrails & Prompt Engine")
     st.caption("Layer 1 — FinancialGuardrails · FinancialPromptEngine · All 5 prompt techniques")
 
