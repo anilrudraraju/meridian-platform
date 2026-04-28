@@ -68,15 +68,22 @@ with st.sidebar:
 
     st.divider()
 
-    # Weeks 4-6 — coming
-    st.markdown("🔜 **Layer 4** — Model Fine-Tuning & Evaluation")
-    st.caption("Fine-tune GPT · training data pipeline · LLM-as-judge *(Week 4)*")
+    if st.button("✅ Layer 4 — Fine-Tuning & Evaluation", use_container_width=True,
+                 type="primary" if st.session_state.active_layer == "finetune" else "secondary"):
+        st.session_state.active_layer = "finetune"
+        st.rerun()
+    st.caption("FinancialEvaluator · base vs fine-tuned · compliance scoring")
+
+    st.divider()
+
+    # Weeks 5-6 — coming
     st.markdown("🔜 **Layer 5** — Responsible AI & Safety")
     st.caption("Bias detection · hallucination guard · audit logging *(Week 5)*")
     st.markdown("🔜 **Layer 6** — Autonomous ReAct Agents")
     st.caption("LangChain agents · tool use · portfolio monitor *(Week 6)*")
 
     st.divider()
+
 
     # Weeks 7-10 — coming
     st.markdown("🔜 **Layer 7** — Multi-Agent Collaboration")
@@ -90,7 +97,7 @@ with st.sidebar:
 
     st.divider()
     # Progress indicator
-    layers_done = 3
+    layers_done = 4
     st.progress(layers_done / 10, text=f"Progress: {layers_done}/10 layers built")
 
 
@@ -530,6 +537,38 @@ class DocumentProcessor:
 CHROMA_PERSIST_DIR = "/tmp/meridian_chromadb"
 CHROMA_COLLECTION   = "meridian_docs"
 
+BASE_MODEL       = "gpt-3.5-turbo-0125"
+FINE_TUNED_MODEL = "ft:gpt-3.5-turbo-0125:personal::DZTJSppd"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FINANCIAL EVALUATOR — week4_capstone.ipynb
+# ══════════════════════════════════════════════════════════════════════════════
+
+@st.cache_resource
+def load_evaluator():
+    from rouge_score import rouge_scorer
+    from sentence_transformers import SentenceTransformer
+    return SentenceTransformer("all-MiniLM-L6-v2"), rouge_scorer.RougeScorer(["rouge1", "rougeL"])
+
+class FinancialEvaluator:
+    """Source: week4_capstone.ipynb"""
+
+    def __init__(self):
+        self.embedding_model, self.rouge = load_evaluator()
+
+    def evaluate_semantic_similarity(self, pred: str, ref: str) -> float:
+        from sklearn.metrics.pairwise import cosine_similarity
+        import numpy as np
+        pred_emb = self.embedding_model.encode([pred])
+        ref_emb  = self.embedding_model.encode([ref])
+        return float(cosine_similarity(pred_emb, ref_emb)[0][0])
+
+    def check_compliance(self, text: str) -> float:
+        required = ["past performance", "does not guarantee"]
+        found = [p for p in required if p in text.lower()]
+        return len(found) / len(required)
+
 
 class RAGSystem:
     """
@@ -830,6 +869,48 @@ if st.session_state.active_layer == "portfolio":
     st.header("📈 Real-Time Portfolio Dashboard")
     st.caption("Milestone 3.1 — MarketDataFetcher · yfinance · FinancialPromptEngine")
 
+    with st.expander("📖 About This Layer — What Was Built & How", expanded=False):
+        st.markdown("""
+### Goal
+Build a live portfolio intelligence dashboard that fetches real market data and runs AI-powered analysis on it.
+This layer connects real-time market prices to the prompt engineering engine from Layer 1 — demonstrating
+how LLMs can be grounded in live financial data rather than static inputs.
+
+---
+
+### What Was Done & Where
+
+| Step | What | Where |
+|------|------|-------|
+| 1 | Built `MarketDataFetcher` class using `yfinance` to fetch live prices, day change %, 1Y return, beta, and sector | `app.py` |
+| 2 | Wired `MarketDataFetcher` output into `FinancialPromptEngine.portfolio_risk_analysis()` for zero-shot AI analysis | `app.py` |
+| 3 | Added role-based client email generation via `FinancialPromptEngine.client_communication()` | `app.py` |
+| 4 | Built Streamlit dashboard with live metrics, portfolio table, sector bar chart, and AI commentary | `app.py` |
+
+---
+
+### Key Classes Used
+| Class | Source | Role |
+|-------|--------|------|
+| `MarketDataFetcher` | `app.py` (deployment helper) | Fetches live prices via yfinance |
+| `FinancialPromptEngine` | `week1_capstone.ipynb` | Runs zero-shot and role-based prompts |
+| `FinancialGuardrails` | `week1_capstone.ipynb` | Wraps all LLM calls via `safe_execute()` |
+
+---
+
+### Models Used
+- `gpt-4o` — portfolio risk analysis (default)
+- `gpt-4o-mini` — cost-saving option
+- `gpt-4` — higher accuracy option
+
+---
+
+### Data Source
+- **yfinance** — free Yahoo Finance API, no key required
+- Fetches last 5 days of price history for day change, and 1 year for YTD return
+- Sector and beta pulled from yfinance `stock.info`
+        """)
+
     col1, col2 = st.columns([3, 1])
     with col1:
         portfolio_text = st.text_area(
@@ -901,6 +982,52 @@ if st.session_state.active_layer == "portfolio":
 if st.session_state.active_layer == "rag":
     st.header("📄 Document Intelligence & RAG")
     st.caption("Milestone 3.2 — DocumentProcessor · RAGSystem · SearchResult · RAGResponse")
+
+    with st.expander("📖 About This Layer — What Was Built & How", expanded=False):
+        st.markdown("""
+### Goal
+Build a document intelligence system that can answer questions about financial filings (10-Ks, 10-Qs)
+using Retrieval-Augmented Generation (RAG). Instead of asking the LLM to recall facts from training data,
+RAG retrieves the most relevant passages from uploaded documents and grounds the answer in those sources.
+
+---
+
+### What Was Done & Where
+
+| Step | What | Where |
+|------|------|-------|
+| 1 | Built `DocumentProcessor` — splits documents into 1,000-char chunks with 200-char overlap | `week3_capstone.ipynb` → `app.py` |
+| 2 | Built `RAGSystem` — embeds chunks using OpenAI `text-embedding-ada-002`, stores in ChromaDB | `week3_capstone.ipynb` → `app.py` |
+| 3 | Implemented SEC EDGAR auto-fetch — pulls 10-K, 10-Q, 8-K filings for any ticker | `app.py` (deployment helper) |
+| 4 | Added PDF and TXT upload support with two parsing modes (fast via pypdf, table-aware via pdfplumber) | `app.py` |
+| 5 | Built Q&A interface with source citations, confidence scoring, and exportable Q&A history | `app.py` |
+
+---
+
+### Key Classes Used
+| Class | Source | Role |
+|-------|--------|------|
+| `DocumentProcessor` | `week3_capstone.ipynb` | Chunks text into overlapping segments |
+| `RAGSystem` | `week3_capstone.ipynb` | Embeds, stores, searches, and answers |
+| `SearchResult` | `week3_capstone.ipynb` | Holds retrieved chunk + similarity score |
+| `RAGResponse` | `week3_capstone.ipynb` | Holds answer + sources + confidence level |
+
+---
+
+### Architecture
+1. **Indexing:** Documents → chunks → OpenAI embeddings → ChromaDB (persisted at `/tmp/meridian_chromadb`)
+2. **Retrieval:** User question → embed → cosine similarity search → top 5 chunks
+3. **Generation:** Top chunks as context → GPT-4 (temperature=0) → cited answer
+
+---
+
+### Key Design Decisions
+- **ChromaDB over in-memory list** — embeddings persist across page refreshes (no re-indexing needed until `/tmp` resets)
+- **pypdf as default** — fast (~15-30s); pdfplumber opt-in for financial tables
+- **temperature=0** — deterministic answers required for financial compliance
+- **Confidence levels:** High (avg similarity > 0.80), Medium (> 0.70), Low (below)
+- **Chunk IDs use MD5 hash** — avoids ChromaDB invalid ID errors on special characters in filenames
+        """)
 
     if not api_key:
         st.warning("Enter your OpenAI API key in the sidebar.")
@@ -1077,6 +1204,52 @@ if st.session_state.active_layer == "guardrails":
     st.header("🛡️ Guardrails & Prompt Engine")
     st.caption("Layer 1 — FinancialGuardrails · FinancialPromptEngine · All 5 prompt techniques")
 
+    with st.expander("📖 About This Layer — What Was Built & How", expanded=False):
+        st.markdown("""
+### Goal
+Establish the foundational prompt engineering and safety layer for the Meridian platform.
+This layer ensures all AI interactions follow a structured prompting strategy and that
+every input and output passes through compliance guardrails before reaching the client.
+
+---
+
+### What Was Done & Where
+
+| Step | What | Where |
+|------|------|-------|
+| 1 | Built `FinancialPromptEngine` with 5 prompt engineering techniques | `week1_capstone.ipynb` → `app.py` |
+| 2 | Built `FinancialGuardrails` — PII detection, prompt injection prevention, output compliance | `week1_capstone.ipynb` → `app.py` |
+| 3 | Implemented `safe_execute()` wrapper — all LLM calls go through input + output validation | `week1_capstone.ipynb` → `app.py` |
+| 4 | Built interactive Streamlit UI to demo all 5 techniques and live guardrail testing | `app.py` |
+
+---
+
+### 5 Prompt Engineering Techniques
+| Technique | Method | Use Case |
+|-----------|--------|----------|
+| Zero-Shot | `portfolio_risk_analysis()` | Direct risk identification with no examples |
+| Few-Shot | `portfolio_report_fewshot()` | Report generation guided by 3 example outputs |
+| Chain-of-Thought | `tax_loss_harvesting_cot()` | Step-by-step tax optimization reasoning |
+| Role-Based | `client_communication()` | Tone-matched emails for conservative/balanced/aggressive clients |
+| ReAct | `market_commentary_react()` | Thought → Action → Observation reasoning loop |
+
+---
+
+### Guardrails — What Gets Blocked
+| Violation Type | Example |
+|----------------|---------|
+| SSN detection | `123-45-6789` in input |
+| Account number detection | 10-17 digit numbers |
+| Prompt injection | `"ignore previous instructions"` |
+| Unauthorized advice | `"guaranteed returns"`, `"you should buy"` |
+| PII in output | SSN or account numbers in AI response |
+
+---
+
+### Model Used
+- `gpt-4o-mini` — used for all prompt demos in this layer (cost-saving; full `gpt-4o` available via dropdown)
+        """)
+
     grd = FinancialGuardrails()
 
     # Guardrails
@@ -1146,3 +1319,227 @@ if st.session_state.active_layer == "guardrails":
             st.caption(f"`{res.model}` | `{res.technique}` | tokens: `{res.tokens_used}` | cost: `${res.cost_estimate:.5f}`")
         else:
             st.error("Input blocked by FinancialGuardrails.validate_input()")
+
+
+# ─── Layer 4 — Fine-Tuning & Evaluation ──────────────────────────────────────
+if st.session_state.active_layer == "finetune":
+    st.header("🔬 Fine-Tuning & Evaluation")
+    st.caption("Layer 4 — FinancialEvaluator · Base vs Fine-Tuned · Compliance Scoring · LLM-as-Judge")
+
+    if not api_key:
+        st.warning("Enter your OpenAI API key in the sidebar.")
+        st.stop()
+
+    # ── About this layer ──────────────────────────────────────────────────────
+    with st.expander("📖 About This Layer — What Was Built & How", expanded=False):
+        st.markdown("""
+### Goal
+Demonstrate model fine-tuning and evaluation for the financial advisory domain.
+Instead of using a generic GPT model, we customized one specifically for Meridian Wealth Partners —
+training it to respond in a professional advisor tone and always include required compliance disclaimers.
+The evaluation framework then measures, quantitatively, whether the fine-tuned model is better than the base model.
+
+---
+
+### What Was Done & Where
+
+| Step | What | Where |
+|------|------|-------|
+| 1 | Generated **56 training examples** covering portfolio risk, tax-loss harvesting, client emails, market events, retirement planning, and compliance edge cases | Locally in `training_data.jsonl` (Claude Code) |
+| 2 | Uploaded `training_data.jsonl` to notebook runtime | Google Colab (`week4_capstone.ipynb`) |
+| 3 | Ran fine-tuning job via OpenAI API — 3 epochs, 48,954 trained tokens, ~20 min | Google Colab → OpenAI Fine-Tuning API |
+| 4 | Fine-tuned model created and hosted by OpenAI | OpenAI Platform (platform.openai.com/finetune) |
+| 5 | Built `FinancialEvaluator` class with semantic similarity + compliance scoring | `app.py` (this file) |
+| 6 | Built Layer 4 UI — side-by-side comparison + evaluation dashboard | `app.py` (this file) |
+
+---
+
+### Models
+| Model | ID | Role |
+|-------|----|------|
+| Base | `gpt-3.5-turbo-0125` | Standard GPT — no financial specialization |
+| Fine-Tuned | `ft:gpt-3.5-turbo-0125:personal::DZTJSppd` | Trained on 56 Meridian advisor examples |
+
+---
+
+### Evaluation Metrics
+- **Compliance Score** — checks whether required legal phrases (`"past performance"`, `"does not guarantee"`) appear in the response. Score: 0%, 50%, or 100%.
+- **Semantic Similarity** — uses `sentence-transformers/all-MiniLM-L6-v2` to embed both the model response and a reference (ideal) answer, then computes cosine similarity (0–1). Higher = closer to the ideal response.
+
+---
+
+### Training Data
+- **56 examples** in `training_data.jsonl` at the root of this repo
+- Each example: system prompt (Meridian advisor persona) + user question + ideal reference answer with compliance disclaimer
+- Topics covered: portfolio risk, rebalancing, tax-loss harvesting, client emails, market event commentary, retirement planning, behavioral coaching, fraud warnings, financial education
+- These same reference answers power the semantic similarity evaluation in this UI
+        """)
+
+    # ── Model info banner ─────────────────────────────────────────────────────
+    col_a, col_b = st.columns(2)
+    with col_a:
+        st.info(f"**Base Model**\n\n`{BASE_MODEL}`\n\nStandard GPT-3.5 Turbo — no financial specialization")
+    with col_b:
+        st.success(f"**Fine-Tuned Model**\n\n`{FINE_TUNED_MODEL}`\n\nTrained on 56 Meridian financial advisory examples")
+
+    st.divider()
+
+    # ── Test prompts ──────────────────────────────────────────────────────────
+    st.subheader("Step 1: Choose a Test Prompt")
+
+    test_cases = {
+        "Portfolio risk — 60% AAPL, 40% MSFT":        ("Analyze: 60% AAPL, 40% MSFT. YTD: +15%",
+            "Portfolio Analysis — Meridian Wealth Partners\n\nYour two-stock technology portfolio has delivered strong YTD returns of +15%, outpacing the S&P 500. However, I have significant concerns:\n\n1. Extreme Concentration Risk: 100% allocation to two mega-cap tech stocks exposes you to severe sector-specific downturns.\n2. Correlation Risk: AAPL and MSFT are highly correlated — they tend to fall together in tech selloffs.\n3. No Income: Neither position offers meaningful dividend yield relative to a diversified income strategy.\n\nRecommendations:\n- Reduce combined tech exposure to 40-50% of portfolio\n- Add defensive sectors: healthcare, utilities, consumer staples\n- Consider broad index fund for core exposure\n\nPast performance does not guarantee future results. This analysis is for informational purposes only and does not constitute personalized financial advice. Consult a licensed financial professional before making investment decisions."),
+        "Rebalancing — 80% NVDA, 20% cash":           ("My portfolio is 80% NVDA and 20% cash. Should I rebalance?",
+            "Portfolio Review — Rebalancing Assessment\n\nYes, rebalancing is strongly advisable. Here is my assessment:\n\nCurrent Concerns:\n1. Extreme Single-Stock Risk: An 80% NVDA position means a 30% decline in NVDA would erase 24% of your total portfolio value.\n2. Volatility Exposure: NVDA has a beta of approximately 1.7 — significantly more volatile than the broader market.\n3. Excess Cash Drag: 20% cash is appropriate for short-term reserves but creates a performance drag in a rising market.\n\nRecommended Rebalancing Plan:\n- Reduce NVDA to 15-20% of portfolio\n- Deploy proceeds into diversified equity index funds (40-50%)\n- Allocate 15-20% to fixed income for stability\n- Maintain 5-10% cash reserve\n\nPast performance does not guarantee future results. This is not personalized financial advice. Consult a licensed financial professional before making investment decisions."),
+        "Client panic — market down 10%":             ("Market just dropped 10% in one week. Client is panicking and wants to sell everything.",
+            "Client Response — Market Correction (10% Weekly Decline)\n\nI understand you are alarmed — a 10% decline in a single week is significant and triggering. Before taking any action, let me provide critical context.\n\nWhat a 10% Correction Means Historically:\n- Market corrections of 10% or more occur approximately once per year on average in US equity markets\n- They are a normal, expected feature of investing — not a signal that something has permanently broken\n- Of all 10%+ corrections since 1950, the market has recovered to previous highs in every single case\n\nWhat Happens If You Sell Now:\n1. You lock in a 10% loss permanently\n2. You now face the impossible decision of when to re-enter\n3. In a taxable account, you trigger capital gains or loss events with tax consequences\n\nWhat I Recommend:\n- Do not sell. Sit on your hands for 48 hours before making any decision.\n- Review your time horizon — if you do not need this money for 5+ years, short-term volatility is irrelevant to your outcome\n\nPast performance does not guarantee future results. Historical market recoveries do not guarantee future recoveries. This is not personalized financial advice. Consult a licensed financial professional before making investment decisions."),
+        "Guaranteed returns fraud warning":           ("Someone offered my client a 25% guaranteed annual return. What should I tell them?",
+            "Red Flag — Likely Investment Fraud\n\nI need to be unequivocal with you: a guaranteed 25% annual return is almost certainly fraudulent. Please do not invest.\n\nWhy this is a near-certain fraud indicator:\n1. The S&P 500 has averaged approximately 10% annually over the past century. No legitimate investment consistently delivers 25%.\n2. 'Guaranteed' returns do not exist in regulated investment markets.\n3. This is the exact structure used by Ponzi schemes.\n\nWhat to do:\n1. Do not transfer any money\n2. Ask for the investment's SEC registration number\n3. Check the advisor's credentials at FINRA BrokerCheck\n4. Report the offer to the SEC if it appears fraudulent\n\nPast performance does not guarantee future results. All investments involve risk, including the possible loss of principal. Please consult a licensed financial professional and regulatory resources before making investment decisions."),
+        "Custom prompt":                              ("", ""),
+    }
+
+    selected_case = st.selectbox("Select test scenario", list(test_cases.keys()))
+    default_prompt, reference_answer = test_cases[selected_case]
+
+    c1, c2 = st.columns([2, 1])
+    with c1:
+        prompt_input = st.text_area("Test prompt", value=default_prompt,
+                                    height=80, disabled=selected_case != "Custom prompt")
+    with c2:
+        temperature = st.slider("Temperature", 0.0, 1.0, 0.7, 0.1)
+        max_tokens  = st.number_input("Max tokens", 100, 1500, 600, 100)
+
+    if selected_case == "Custom prompt":
+        reference_answer = st.text_area("Reference answer (for scoring)", height=120,
+                                        placeholder="Paste the ideal response here to enable similarity scoring...")
+
+    st.divider()
+
+    # ── Run comparison ────────────────────────────────────────────────────────
+    st.subheader("Step 2: Run Side-by-Side Comparison")
+
+    if st.button("▶️ Run Both Models", type="primary", disabled=not prompt_input):
+        import openai
+        _client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+
+        base_response, ft_response = "", ""
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.markdown(f"#### Base Model — `{BASE_MODEL}`")
+            with st.spinner("Running base model..."):
+                try:
+                    base_resp = _client.chat.completions.create(
+                        model=BASE_MODEL,
+                        messages=[
+                            {"role": "system", "content": "You are a senior financial advisor at Meridian Wealth Partners serving Global Fiscal Group clients. Provide professional, concise portfolio analysis with appropriate compliance disclosures."},
+                            {"role": "user", "content": prompt_input}
+                        ],
+                        temperature=temperature,
+                        max_tokens=max_tokens
+                    )
+                    base_response = base_resp.choices[0].message.content
+                    st.markdown(base_response)
+                    st.caption(f"Tokens: `{base_resp.usage.total_tokens}`")
+                except Exception as e:
+                    st.error(f"Base model error: {e}")
+
+        with col2:
+            st.markdown(f"#### Fine-Tuned Model — `{FINE_TUNED_MODEL}`")
+            with st.spinner("Running fine-tuned model..."):
+                try:
+                    ft_resp = _client.chat.completions.create(
+                        model=FINE_TUNED_MODEL,
+                        messages=[
+                            {"role": "system", "content": "You are a senior financial advisor at Meridian Wealth Partners serving Global Fiscal Group clients. Provide professional, concise portfolio analysis with appropriate compliance disclosures."},
+                            {"role": "user", "content": prompt_input}
+                        ],
+                        temperature=temperature,
+                        max_tokens=max_tokens
+                    )
+                    ft_response = ft_resp.choices[0].message.content
+                    st.markdown(ft_response)
+                    st.caption(f"Tokens: `{ft_resp.usage.total_tokens}`")
+                except Exception as e:
+                    st.error(f"Fine-tuned model error: {e}")
+
+        # ── Evaluation scores ─────────────────────────────────────────────────
+        if base_response and ft_response:
+            st.divider()
+            st.subheader("Step 3: Evaluation Scores — FinancialEvaluator")
+
+            evaluator = FinancialEvaluator()
+
+            base_compliance = evaluator.check_compliance(base_response)
+            ft_compliance   = evaluator.check_compliance(ft_response)
+
+            has_reference = bool(reference_answer.strip())
+
+            if has_reference:
+                with st.spinner("Computing semantic similarity..."):
+                    base_similarity = evaluator.evaluate_semantic_similarity(base_response, reference_answer)
+                    ft_similarity   = evaluator.evaluate_semantic_similarity(ft_response,   reference_answer)
+
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("Base Compliance",     f"{base_compliance:.0%}",
+                      delta=None)
+            m2.metric("Fine-Tuned Compliance", f"{ft_compliance:.0%}",
+                      delta=f"{(ft_compliance - base_compliance):+.0%} vs base")
+
+            if has_reference:
+                m3.metric("Base Similarity",     f"{base_similarity:.3f}")
+                m4.metric("Fine-Tuned Similarity", f"{ft_similarity:.3f}",
+                          delta=f"{(ft_similarity - base_similarity):+.3f} vs base")
+            else:
+                m3.metric("Base Similarity",      "—")
+                m4.metric("Fine-Tuned Similarity", "—")
+                st.caption("ℹ️ Add a reference answer above to enable semantic similarity scoring.")
+
+            # Compliance detail
+            with st.expander("📋 Compliance Check Detail"):
+                st.markdown("**Required phrases checked:**")
+                for phrase in ["past performance", "does not guarantee"]:
+                    base_found = phrase in base_response.lower()
+                    ft_found   = phrase in ft_response.lower()
+                    st.markdown(
+                        f"- `\"{phrase}\"` — "
+                        f"Base: {'✅' if base_found else '❌'} | "
+                        f"Fine-Tuned: {'✅' if ft_found else '❌'}"
+                    )
+
+            # Save to history
+            if "eval_history" not in st.session_state:
+                st.session_state.eval_history = []
+            st.session_state.eval_history.append({
+                "prompt":           prompt_input,
+                "base_response":    base_response,
+                "ft_response":      ft_response,
+                "base_compliance":  base_compliance,
+                "ft_compliance":    ft_compliance,
+                "base_similarity":  base_similarity if has_reference else None,
+                "ft_similarity":    ft_similarity   if has_reference else None,
+                "timestamp":        datetime.now().isoformat()
+            })
+
+    # ── Eval history ──────────────────────────────────────────────────────────
+    if st.session_state.get("eval_history"):
+        st.divider()
+        n = len(st.session_state.eval_history)
+        st.markdown(f"**Evaluation History: {n} run(s)**")
+        with st.expander("View history"):
+            for i, h in enumerate(st.session_state.eval_history):
+                st.markdown(f"**Run {i+1}:** {h['prompt'][:80]}...")
+                cols = st.columns(4)
+                cols[0].metric("Base Compliance",  f"{h['base_compliance']:.0%}")
+                cols[1].metric("FT Compliance",    f"{h['ft_compliance']:.0%}")
+                cols[2].metric("Base Similarity",  f"{h['base_similarity']:.3f}" if h['base_similarity'] is not None else "—")
+                cols[3].metric("FT Similarity",    f"{h['ft_similarity']:.3f}"   if h['ft_similarity']   is not None else "—")
+                st.divider()
+        st.download_button(
+            "⬇️ Export Evaluation Log (week4_eval_results.json)",
+            json.dumps(st.session_state.eval_history, indent=2),
+            file_name="week4_eval_results.json",
+            mime="application/json"
+        )
