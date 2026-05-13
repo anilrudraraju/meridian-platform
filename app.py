@@ -404,7 +404,7 @@ class DocumentProcessor:
     chunk_size=1000, chunk_overlap=200 (assignment spec)
     """
 
-    def __init__(self, chunk_size=1000, chunk_overlap=200):
+    def __init__(self, chunk_size=2000, chunk_overlap=400):
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
 
@@ -412,18 +412,39 @@ class DocumentProcessor:
         """Returns list of {page_content, metadata} dicts — matches LangChain Document format"""
         if not text or not text.strip():
             return []
+
+        # Pre-scan for SEC Item headers so each chunk knows which section it's in.
+        # Matches "ITEM 1.", "Item 1A.", "ITEM 7. MANAGEMENT'S DISCUSSION", etc.
+        section_breaks = [
+            (m.start(), f"Item {m.group(1)} — {m.group(2).strip()[:40]}")
+            for m in re.finditer(r'(?m)^\s*(?:ITEM|Item)\s+(\d+[A-Z]?)\.?\s+([^\n]{0,60})', text)
+        ]
+
+        def current_section(pos: int) -> str:
+            if not section_breaks:
+                return ""
+            label = "Preamble"
+            for sec_pos, sec_label in section_breaks:
+                if sec_pos <= pos:
+                    label = sec_label
+            return label
+
         chunks = []
         discarded = 0
         start = 0
         chunk_id = 0
-        step = max(1, self.chunk_size - self.chunk_overlap)  # prevent infinite loop
+        step = max(1, self.chunk_size - self.chunk_overlap)
         while start < len(text):
             end = min(start + self.chunk_size, len(text))
             piece = text[start:end]
             if len(piece.strip()) >= 50:
                 chunks.append({
                     "page_content": piece,
-                    "metadata": {"source": source, "chunk_id": chunk_id}
+                    "metadata": {
+                        "source": source,
+                        "chunk_id": chunk_id,
+                        "section": current_section(start),
+                    }
                 })
                 chunk_id += 1
             else:
@@ -721,6 +742,8 @@ class RAGSystem:
         Confidence: High (>0.80) / Medium (>0.70) / Low based on avg similarity.
         """
         results = self.search(question, k=k)
+        # Drop chunks that are too dissimilar to be useful — they add noise to the context
+        results = [r for r in results if r.relevance_score >= 0.55]
         if not results:
             return RAGResponse(
                 question=question,
@@ -754,7 +777,7 @@ Answer (with source citations):"""
         )
         answer = resp.choices[0].message.content
         avg_score = sum(r.relevance_score for r in results) / len(results)
-        confidence = "High" if avg_score > 0.80 else "Medium" if avg_score > 0.70 else "Low"
+        confidence = "High" if avg_score > 0.75 else "Medium" if avg_score > 0.60 else "Low"
         return RAGResponse(question=question, answer=answer, sources=results, confidence=confidence)
 
     def analyze_risk_factors(self, company: str) -> RAGResponse:
@@ -813,6 +836,95 @@ def fetch_edgar_filing(ticker: str, form_type: str = "10-K") -> Tuple[bool, str,
         return True, clean, f"{company_name} {form_type} ({filing_date})"
     except Exception as e:
         return False, "", f"EDGAR error: {e}"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# XBRL FINANCIAL FACTS FETCHER
+# Answers quantitative questions (revenue, net income, EPS, assets) with exact
+# structured data from the SEC Company Facts API — no vector search needed.
+# ══════════════════════════════════════════════════════════════════════════════
+
+def fetch_xbrl_facts(ticker: str) -> Tuple[bool, Dict, str]:
+    """
+    Fetch structured financial facts from SEC XBRL Company Facts API.
+    Returns (success, {metric_label: [entries]}, company_name)
+    Each entry: {value, period_end, period_start, form, filed, period}
+    """
+    headers = {"User-Agent": "MeridianPlatform student@meridian.edu"}
+    # Priority-ordered list of GAAP concept names for each human-readable metric.
+    # The first concept found in the company's XBRL data is used.
+    CONCEPT_MAP = {
+        "Revenue":             ["RevenueFromContractWithCustomerExcludingAssessedTax", "Revenues", "SalesRevenueNet"],
+        "Net Income":          ["NetIncomeLoss"],
+        "Operating Income":    ["OperatingIncomeLoss"],
+        "Gross Profit":        ["GrossProfit"],
+        "Total Assets":        ["Assets"],
+        "Total Liabilities":   ["Liabilities"],
+        "Stockholders Equity": ["StockholdersEquity", "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest"],
+        "Operating Cash Flow": ["NetCashProvidedByUsedInOperatingActivities"],
+        "Cash & Equivalents":  ["CashAndCashEquivalentsAtCarryingValue", "CashCashEquivalentsAndShortTermInvestments"],
+        "EPS (Diluted)":       ["EarningsPerShareDiluted"],
+        "Long-Term Debt":      ["LongTermDebt", "LongTermDebtNoncurrent"],
+        "R&D Expense":         ["ResearchAndDevelopmentExpense"],
+    }
+    try:
+        r = requests.get("https://www.sec.gov/files/company_tickers.json", headers=headers, timeout=10)
+        r.raise_for_status()
+        cik, company_name = None, None
+        for entry in r.json().values():
+            if entry["ticker"].upper() == ticker.upper():
+                cik = str(entry["cik_str"]).zfill(10)
+                company_name = entry["title"]
+                break
+        if not cik:
+            return False, {}, f"Ticker '{ticker}' not found in SEC EDGAR"
+
+        r2 = requests.get(
+            f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json",
+            headers=headers, timeout=20
+        )
+        r2.raise_for_status()
+        us_gaap = r2.json().get("facts", {}).get("us-gaap", {})
+
+        facts = {}
+        for label, concepts in CONCEPT_MAP.items():
+            for concept in concepts:
+                if concept not in us_gaap:
+                    continue
+                units = us_gaap[concept].get("units", {})
+                raw = units.get("USD") or units.get("shares") or []
+                entries = [
+                    {
+                        "value":        v["val"],
+                        "period_end":   v.get("end", ""),
+                        "period_start": v.get("start", ""),
+                        "form":         v.get("form", ""),
+                        "filed":        v.get("filed", ""),
+                        "period":       v.get("fp", ""),
+                    }
+                    for v in raw
+                    if v.get("form") in ("10-K", "10-Q") and v.get("end")
+                ]
+                if entries:
+                    entries.sort(key=lambda x: x["period_end"], reverse=True)
+                    facts[label] = entries[:16]  # ~4 years of data
+                    break
+        return True, facts, company_name
+    except Exception as e:
+        return False, {}, f"XBRL error: {e}"
+
+
+def _fmt_xbrl(value: float, label: str) -> str:
+    """Scale raw XBRL USD/share values to readable strings."""
+    if "EPS" in label:
+        return f"${value:.2f}"
+    if abs(value) >= 1e12:
+        return f"${value / 1e12:.2f}T"
+    if abs(value) >= 1e9:
+        return f"${value / 1e9:.2f}B"
+    if abs(value) >= 1e6:
+        return f"${value / 1e6:.1f}M"
+    return f"${value:,.0f}"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1038,7 +1150,7 @@ RAG retrieves the most relevant passages from uploaded documents and grounds the
     if "qa_history"   not in st.session_state: st.session_state.qa_history   = []
     if "loaded_docs"  not in st.session_state: st.session_state.loaded_docs  = []
 
-    processor = DocumentProcessor(chunk_size=1000, chunk_overlap=200)
+    processor = DocumentProcessor(chunk_size=2000, chunk_overlap=400)
 
     # Step 1
     st.subheader("Step 1: Load Documents")
@@ -1162,7 +1274,9 @@ RAG retrieves the most relevant passages from uploaded documents and grounds the
                 st.error("RAG system is not initialized. Please index documents first.")
                 st.stop()
             with st.spinner("Running RAGSystem.answer_question()..."):
-                response: RAGResponse = rag.answer_question(final_q, k=5)
+                # k=10: financial docs reference the same figure in multiple sections
+                # (income statement, MD&A, segment tables) — wider retrieval improves recall
+                response: RAGResponse = rag.answer_question(final_q, k=10)
 
             st.markdown("### 💡 Answer")
             st.markdown(response.answer)
@@ -1170,10 +1284,27 @@ RAG retrieves the most relevant passages from uploaded documents and grounds the
             c = conf_colors.get(response.confidence, "gray")
             st.markdown(f"**Confidence:** :{c}[{response.confidence}]")
 
-            with st.expander(f"📎 Sources — {len(response.sources)} SearchResult objects"):
+            with st.expander(f"📎 Sources — {len(response.sources)} chunks used"):
                 for i, sr in enumerate(response.sources):
-                    st.markdown(f"**[Source {i+1}]** `{sr.source}` | similarity: `{sr.relevance_score:.3f}` | chunk_id: `{sr.metadata.get('chunk_id','?')}`")
+                    section = sr.metadata.get("section", "")
+                    section_str = f" | section: `{section}`" if section else ""
+                    st.markdown(
+                        f"**[Source {i+1}]** `{sr.source}` | similarity: `{sr.relevance_score:.3f}`"
+                        f" | chunk: `{sr.metadata.get('chunk_id','?')}`{section_str}"
+                    )
                     st.text(sr.content[:400] + "..." if len(sr.content) > 400 else sr.content)
+                    st.divider()
+
+            with st.expander("🔍 Debug — retrieval scores"):
+                st.caption("Chunks passing the 0.55 similarity floor, ranked by score. Use this to diagnose misses.")
+                for sr in response.sources:
+                    section = sr.metadata.get("section", "—")
+                    bar = "█" * int(sr.relevance_score * 20)
+                    st.markdown(
+                        f"`{sr.relevance_score:.3f}` {bar}  \n"
+                        f"**Section:** {section}  \n"
+                        f"**Preview:** {sr.content[:200].strip()}…"
+                    )
                     st.divider()
 
             st.session_state.qa_history.append({
@@ -1197,6 +1328,78 @@ RAG retrieves the most relevant passages from uploaded documents and grounds the
                 json.dumps(st.session_state.qa_history, indent=2),
                 file_name="week3_qa_results.json", mime="application/json"
             )
+
+
+# ─── Layer 3 continued — Step 4: XBRL Financial Facts ───────────────────────
+# Separate if block (same active_layer) so it stays at top indentation level.
+# Answers quantitative questions directly from structured SEC data — no RAG.
+if st.session_state.active_layer == "rag":
+    import pandas as pd
+
+    st.divider()
+    st.subheader("Step 4: Financial Facts (XBRL)")
+    st.caption(
+        "Exact numbers from SEC XBRL — no vector search. "
+        "Use this for: revenue, net income, EPS, assets, cash flow. "
+        "Use Steps 1–3 for: *why* revenue changed, risk factors, management commentary."
+    )
+
+    xf1, xf2 = st.columns([2, 1])
+    with xf1:
+        xbrl_ticker = st.text_input("Ticker", placeholder="AAPL", key="xbrl_ticker_input").upper().strip()
+    with xf2:
+        xbrl_filter = st.selectbox("Period", ["Both", "Annual (10-K)", "Quarterly (10-Q)"], key="xbrl_filter")
+
+    if st.button("📊 Fetch XBRL Facts", disabled=not xbrl_ticker):
+        with st.spinner(f"Fetching XBRL facts for {xbrl_ticker} from SEC..."):
+            ok, facts, desc = fetch_xbrl_facts(xbrl_ticker)
+        if not ok:
+            st.error(desc)
+        else:
+            st.session_state["xbrl_facts"] = facts
+            st.session_state["xbrl_desc"]  = desc
+
+    if st.session_state.get("xbrl_facts"):
+        facts = st.session_state["xbrl_facts"]
+        desc  = st.session_state.get("xbrl_desc", "")
+        form_filter = {"Annual (10-K)": "10-K", "Quarterly (10-Q)": "10-Q"}.get(xbrl_filter)
+
+        st.success(f"✅ {desc} — {len(facts)} metrics")
+
+        # Summary table: latest annual + latest quarterly value side-by-side
+        rows = []
+        for metric, entries in facts.items():
+            fy = next((e for e in entries if e["form"] == "10-K"), None)
+            qt = next((e for e in entries if e["form"] == "10-Q"), None)
+            rows.append({
+                "Metric":         metric,
+                "Latest Annual":  _fmt_xbrl(fy["value"], metric) if fy else "—",
+                "FY Period":      fy["period_end"][:7] if fy else "—",
+                "Latest Quarter": _fmt_xbrl(qt["value"], metric) if qt else "—",
+                "Q Period":       qt["period_end"][:7] if qt else "—",
+            })
+        st.dataframe(pd.DataFrame(rows).set_index("Metric"), use_container_width=True)
+
+        # Drill-down: full history for a selected metric with a bar chart
+        selected = st.selectbox("Drill into history", list(facts.keys()), key="xbrl_drill")
+        if selected:
+            entries = facts[selected]
+            if form_filter:
+                entries = [e for e in entries if e["form"] == form_filter]
+            df_hist = pd.DataFrame([
+                {
+                    "Period End":   e["period_end"],
+                    "Period Start": e["period_start"],
+                    "Value":        _fmt_xbrl(e["value"], selected),
+                    "_raw":         e["value"],
+                    "Form":         e["form"],
+                    "Filed":        e["filed"],
+                }
+                for e in entries
+            ])
+            st.dataframe(df_hist.drop(columns=["_raw"]), use_container_width=True)
+            if not df_hist.empty:
+                st.bar_chart(df_hist.set_index("Period End")["_raw"])
 
 
 # ─── Layer 1 — Guardrails ────────────────────────────────────────────────────

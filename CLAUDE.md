@@ -1,32 +1,58 @@
-# Meridian Intelligence Platform — Claude Code Context
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview
 - **App:** Meridian Intelligence Platform — 10-layer AI wealth management platform
 - **Case Study:** Global Fiscal Group ($12.8B AUM)
-- **Stack:** Python + Streamlit, single `app.py` file (~1,100 lines)
+- **Stack:** Python + Streamlit, single `app.py` file (~1,550 lines)
 - **Live URL:** https://meridian-platform.streamlit.app
 - **Repo:** https://github.com/anilrudraraju/meridian-platform
-- **Local path:** `~/Desktop/meridian-platform`
 - **Deploy:** Every push to `main` triggers auto-redeploy on Streamlit Cloud (~60s)
 
 ---
 
+## Running Locally
+
+```bash
+pip install -r requirements.txt
+streamlit run app.py
+# Open http://localhost:8501 and enter your OpenAI key in the sidebar
+```
+
+No build step, lint config, or test suite exists. The running app is the artifact.
+
+---
+
 ## Current Layer Status
-| Layer | Status | Tab Variable | Label |
-|-------|--------|-------------|-------|
-| 1 | ✅ BUILT | `tab_guardrails` | 🛡️ Layer 1 — Guardrails & Prompts |
-| 2 | ✅ BUILT | `tab_portfolio` | 📈 Layer 2 — Portfolio Dashboard |
-| 3 | ✅ BUILT | `tab_rag` | 📄 Layer 3 — Document RAG |
-| 4 | 🔜 NEXT | `tab_finetune` | 🔬 Layer 4 — Fine-Tuning & Evaluation |
+
+| Layer | Status | `active_layer` value | Label |
+|-------|--------|---------------------|-------|
+| 1 | ✅ BUILT | `"guardrails"` | 🛡️ Layer 1 — Guardrails & Prompts |
+| 2 | ✅ BUILT | `"portfolio"` | 📈 Layer 2 — Portfolio Dashboard |
+| 3 | ✅ BUILT | `"rag"` | 📄 Layer 3 — Document RAG |
+| 4 | ✅ BUILT | `"finetune"` | 🔬 Layer 4 — Fine-Tuning & Evaluation |
 | 5–10 | 🔜 | follow same pattern | — |
+
+---
+
+## Navigation Architecture
+
+The app uses **sidebar buttons + `st.session_state.active_layer`**, not `st.tabs()`. Each layer renders inside an `if st.session_state.active_layer == "<value>":` block at the bottom of `app.py`. Sidebar buttons set `active_layer` then call `st.rerun()`.
+
+**Do not use `st.tabs()` or numbered tab variables** — this previously crashed the deployment.
+
+Adding a new layer means:
+1. Add a sidebar button that sets `st.session_state.active_layer = "<new_value>"`
+2. Add a corresponding `if st.session_state.active_layer == "<new_value>":` UI block
 
 ---
 
 ## CRITICAL CODING RULES — Always Follow
 
-1. **Tab variables are NAMED, not numbered.**
-   - ✅ `tab_guardrails`, `tab_portfolio`, `tab_rag`, `tab_finetune`
-   - ❌ Never `tab1`, `tab2`, `tab3` — this crashed deployment before
+1. **Navigation uses named `active_layer` strings.**
+   - ✅ `st.session_state.active_layer == "guardrails"` / `"portfolio"` / `"rag"` / `"finetune"`
+   - ❌ Never `tab1`, `tab2`, or `st.tabs()`
 
 2. **Classes must match notebook source exactly.**
    - `FinancialPromptEngine`, `FinancialGuardrails`, `DocumentProcessor`, `RAGSystem`
@@ -44,7 +70,7 @@
    hashlib.md5(f"{source}__chunk_{id}".encode()).hexdigest()
    ```
 
-7. **Embeddings in batches of 20** — OpenAI ada-002 API limit
+7. **Embeddings in batches of 100** — current limit in `RAGSystem._embed()` (raised from 20 for throughput)
 
 8. **ChromaDB upsert in batches of 100** — never upsert all at once
 
@@ -63,7 +89,7 @@ LLM:          OpenAI GPT-4 / GPT-4o (via openai >= 1.12.0)
 Embeddings:   text-embedding-ada-002 (1536 dims) — never change this
 Vector DB:    ChromaDB >= 1.0.0 (PersistentClient)
 Market Data:  yfinance >= 0.2.36
-PDF Parsing:  pdfplumber >= 0.10.0 (PRIMARY) + pypdf >= 4.0.0 (fallback)
+PDF Parsing:  pypdf >= 4.0.0 (DEFAULT fast path) + pdfplumber >= 0.10.0 (opt-in, table-aware)
 SEC Filings:  SEC EDGAR API (free, no key)
 HTTP:         requests >= 2.31.0
 Data:         pandas >= 2.0.0, numpy >= 1.24.0
@@ -82,7 +108,7 @@ Hosting:      Streamlit Community Cloud
 
 ## Class Reference
 
-### Week 1 — `FinancialPromptEngine` & `FinancialGuardrails`
+### Layer 1 — `FinancialPromptEngine` & `FinancialGuardrails`
 ```python
 @dataclass
 class PromptResult:
@@ -108,7 +134,7 @@ class FinancialGuardrails:
     def safe_execute(self, prompt_engine, prompt_function, *args, **kwargs) -> Tuple[bool, PromptResult]
 ```
 
-### Week 3 — `DocumentProcessor` & `RAGSystem`
+### Layer 3 — `DocumentProcessor` & `RAGSystem`
 ```python
 @dataclass
 class SearchResult:
@@ -120,22 +146,45 @@ class SearchResult:
 class RAGResponse:
     question: str; answer: str
     sources: List[SearchResult]
-    confidence: str  # "High" (>0.80), "Medium" (>0.70), "Low"
+    confidence: str  # "High" (>0.75), "Medium" (>0.60), "Low"
 
 class DocumentProcessor:
-    # chunk_size=1000, chunk_overlap=200 — DO NOT CHANGE (assignment spec)
+    # chunk_size=2000, chunk_overlap=400
+    # chunk_text pre-scans for SEC "ITEM N" headers and tags each chunk with a "section" metadata field
     def chunk_text(self, text: str, source: str) -> List[Dict]
     def load_from_text(self, text: str, source: str) -> List[Dict]
-    def load_from_pdf_bytes(self, pdf_bytes: bytes, source: str) -> List[Dict]  # pdfplumber primary
+    def load_from_pdf_bytes(self, pdf_bytes: bytes, source: str, table_aware: bool = False) -> List[Dict]
+    #   table_aware=False → pypdf (fast, ~15-30s per file, default)
+    #   table_aware=True  → pdfplumber (2+ min for large 10-Qs, preserves table structure)
     def load_from_txt_bytes(self, txt_bytes: bytes, source: str) -> List[Dict]
 
 class RAGSystem:
     def index_documents(self, chunks: List[Dict]) -> None
     def search(self, query: str, k: int = 5) -> List[SearchResult]
-    def answer_question(self, question: str, k: int = 5) -> RAGResponse  # temperature=0
+    def answer_question(self, question: str, k: int = 5) -> RAGResponse  # temperature=0; UI calls with k=10; filters results < 0.55 similarity
     def analyze_risk_factors(self, company: str) -> RAGResponse
     def summarize_earnings(self, company: str, quarter: str) -> RAGResponse
+    def clear(self) -> None   # delete + recreate ChromaDB collection
+    def count(self) -> int    # number of chunks currently indexed
 ```
+
+### Layer 4 — `FinancialEvaluator`
+```python
+# Model constants (top of app.py)
+BASE_MODEL       = "gpt-3.5-turbo-0125"
+FINE_TUNED_MODEL = "ft:gpt-3.5-turbo-0125:personal::DZTJSppd"
+
+# Sentence-transformer model is loaded via @st.cache_resource to avoid reload on every rerun
+@st.cache_resource
+def load_evaluator():  # returns (SentenceTransformer, RougeScorer)
+
+class FinancialEvaluator:
+    def evaluate_semantic_similarity(self, pred: str, ref: str) -> float  # cosine sim via all-MiniLM-L6-v2
+    def check_compliance(self, text: str) -> float  # checks "past performance" + "does not guarantee" → 0.0/0.5/1.0
+```
+**Training data:** `training_data.jsonl` at repo root — 56 examples used to fine-tune `FINE_TUNED_MODEL`.
+
+---
 
 ### Deployment Helpers (not in notebooks)
 ```python
@@ -145,7 +194,21 @@ class MarketDataFetcher:
 def fetch_edgar_filing(ticker: str, form_type: str = "10-K") -> Tuple[bool, str, str]:
     # char_cap = 300,000 chars
     # 10-Qs work well; 10-Ks often exceed cap — use PDF upload instead
+
+def fetch_xbrl_facts(ticker: str) -> Tuple[bool, Dict, str]:
+    # Returns {metric_label: [{value, period_end, period_start, form, filed, period}]}
+    # Source: SEC XBRL Company Facts API — exact numbers, no embeddings needed
+    # Metrics: Revenue, Net Income, Operating Income, Gross Profit, Total Assets,
+    #          Total Liabilities, Stockholders Equity, Operating Cash Flow,
+    #          Cash & Equivalents, EPS (Diluted), Long-Term Debt, R&D Expense
+
+def _fmt_xbrl(value: float, label: str) -> str:
+    # Scales raw USD values to T/B/M strings; EPS shown as $X.XX
 ```
+
+**Dual-store pattern (Layer 3):**
+- **Quantitative** questions (revenue, net income, EPS) → Step 4 XBRL fetch — exact numbers, no RAG
+- **Qualitative** questions (why revenue declined, risk factors, MD&A) → Steps 1–3 RAG pipeline
 
 ---
 
@@ -154,59 +217,21 @@ def fetch_edgar_filing(ticker: str, form_type: str = "10-K") -> Tuple[bool, str,
 CHROMA_PERSIST_DIR = "/tmp/meridian_chromadb"  # hardcoded — do not change
 CHROMA_COLLECTION  = "meridian_docs"
 # Created with: metadata={"hnsw:space": "cosine"}
-# Similarity: 1 - (distance / 2)
+# Distance-to-similarity: score = 1 - (distance / 2)
 ```
 **Note:** `/tmp` resets after ~1hr inactivity on Streamlit Cloud. Re-indexing required after wake.
 
 ---
 
-## Known Issues & Fixes Applied
+## Layer 5 — Next Layer (Responsible AI & Safety)
 
-| Bug | Fix |
-|-----|-----|
-| `chunk_text` infinite loop | `step = max(1, chunk_size - chunk_overlap)` |
-| PDF silent failure | Per-page try/except in `load_from_pdf_bytes` |
-| ChromaDB upsert size crash | Batch upserts of 100 |
-| ChromaDB invalid IDs | MD5 hash for all IDs |
-| OpenAI token limit on embeddings | Truncate chunks to 6,000 chars before embedding |
-| EDGAR truncation too aggressive | Raised cap to 300,000 chars |
-| Financial tables misread | Switched to pdfplumber (table-aware) |
-| Non-deterministic RAG answers | Set `temperature=0` in `answer_question()` |
-| Tab variable crash on deploy | Named tab vars (`tab_guardrails` not `tab1`) |
-| protobuf conflict | `protobuf>=3.20.0,<4.0.0` in requirements.txt |
-| ChromaDB path permission error | Changed to `/tmp/meridian_chromadb` |
-| API key not loading | `try: st.secrets["OPENAI_API_KEY"]` pattern |
+**Navigation value:** `"responsible_ai"` — label "🧭 Layer 5 — Responsible AI & Safety"
 
----
+Planned features: bias detection, hallucination guard, audit logging.
 
-## Week 4 — Next Layer (Fine-Tuning & Evaluation)
-
-**New tab:** `tab_finetune` — "🔬 Layer 4 — Fine-Tuning & Evaluation"
-
-**New classes:**
-```python
-class FinancialEvaluator:
-    def evaluate_semantic_similarity(self, pred: str, ref: str) -> float
-    def check_compliance(self, text: str) -> float  # 0.0 to 1.0
-```
-
-**New packages to add to requirements.txt:**
-```
-rouge-score
-sentence-transformers
-scikit-learn
-```
-
----
-
-## File Structure
-```
-meridian-platform/
-├── app.py              # Single Streamlit app — all layers here
-├── requirements.txt    # All dependencies pinned
-├── CLAUDE.md           # This file — Claude Code context
-└── README.md           # Setup and deployment instructions
-```
+Adding it follows the same pattern as all prior layers:
+1. Add a sidebar button setting `st.session_state.active_layer = "responsible_ai"`
+2. Add a corresponding `if st.session_state.active_layer == "responsible_ai":` UI block
 
 ---
 
@@ -214,7 +239,10 @@ meridian-platform/
 Stored in Streamlit Cloud Secrets as `OPENAI_API_KEY`. Load with:
 ```python
 try:
-    openai.api_key = st.secrets["OPENAI_API_KEY"]
+    api_key = st.secrets["OPENAI_API_KEY"]
+    os.environ["OPENAI_API_KEY"] = api_key
 except:
-    openai.api_key = os.getenv("OPENAI_API_KEY")
+    api_key = st.text_input("🔑 OpenAI API Key", type="password")
+    if api_key:
+        os.environ["OPENAI_API_KEY"] = api_key
 ```
