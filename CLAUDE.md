@@ -241,8 +241,10 @@ class FinancialEvaluator:
 class MarketDataFetcher:
     def fetch_portfolio(self, holdings: Dict[str, float]) -> Tuple[List[Dict], float, List[str]]
 
-def fetch_edgar_filing(ticker: str, form_type: str = "10-K") -> Tuple[bool, str, str, str, str]:
+def fetch_edgar_filing(ticker: str, form_type: str = "10-K", target_year: str = None) -> Tuple[bool, str, str, str, str]:
     # Returns (ok, text, desc, cik, company_name)
+    # target_year filters by reportDate (fiscal year end) — e.g. "2023" matches "2023-12-31"
+    # Without target_year, returns the most recent filing
     # char_cap = 300,000 chars; 10-Ks often exceed cap — use PDF upload instead
 
 def fetch_xbrl_facts(ticker: str) -> Tuple[bool, Dict, str]:

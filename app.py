@@ -989,7 +989,8 @@ Answer (with source citations):"""
 # EDGAR FETCHER — new helper (extends platform for real 10-K data)
 # ══════════════════════════════════════════════════════════════════════════════
 
-def fetch_edgar_filing(ticker: str, form_type: str = "10-K") -> Tuple[bool, str, str, str, str]:
+def fetch_edgar_filing(ticker: str, form_type: str = "10-K",
+                       target_year: str = None) -> Tuple[bool, str, str, str, str]:
     headers = {"User-Agent": "MeridianPlatform student@meridian.edu"}
     try:
         r = requests.get("https://www.sec.gov/files/company_tickers.json", headers=headers, timeout=10)
@@ -1009,9 +1010,31 @@ def fetch_edgar_filing(ticker: str, form_type: str = "10-K") -> Tuple[bool, str,
         forms = filings.get("form", [])
         accessions = filings.get("accessionNumber", [])
         dates = filings.get("filingDate", [])
-        idx = next((i for i, f in enumerate(forms) if f == form_type), None)
-        if idx is None:
-            return False, "", f"No {form_type} found for {ticker}", "", ""
+        report_dates = filings.get("reportDate", [])  # fiscal period end date
+
+        if target_year:
+            # Match by reportDate (fiscal year end) — e.g. target_year="2023" matches "2023-12-31"
+            idx = next(
+                (i for i, (f, rd) in enumerate(zip(forms, report_dates))
+                 if f == form_type and str(rd).startswith(target_year)),
+                None
+            )
+            if idx is None:
+                # Surface the available years so the user knows what to ask for
+                available = sorted(
+                    {str(rd)[:4] for f, rd in zip(forms, report_dates) if f == form_type and rd},
+                    reverse=True
+                )
+                avail_str = ", ".join(available) if available else "none found"
+                return False, "", (
+                    f"No {form_type} found for {ticker} with fiscal year {target_year}. "
+                    f"Available years: {avail_str}"
+                ), "", ""
+        else:
+            idx = next((i for i, f in enumerate(forms) if f == form_type), None)
+            if idx is None:
+                return False, "", f"No {form_type} found for {ticker}", "", ""
+
         if idx >= len(accessions) or idx >= len(dates):
             return False, "", f"SEC data for {ticker} is inconsistent (lists have different lengths). Try a different form type.", "", ""
 
@@ -1826,25 +1849,32 @@ RAG retrieves the most relevant passages from uploaded documents and grounds the
         edgar_fiscal_year = st.text_input("Fiscal Year", placeholder="2024", max_chars=4,
                                           help="4-digit fiscal year (e.g. 2024). Auto-detected if blank.")
         if st.button("📥 Fetch from EDGAR", disabled=not edgar_ticker):
-            with st.spinner(f"Fetching {form_type} for {edgar_ticker}..."):
-                ok, text, desc, edgar_cik, edgar_company = fetch_edgar_filing(edgar_ticker, form_type)
+            fy_input = edgar_fiscal_year.strip()
+            with st.spinner(f"Fetching {form_type} for {edgar_ticker}" +
+                            (f" ({fy_input})" if fy_input else "") + "..."):
+                ok, text, desc, edgar_cik, edgar_company = fetch_edgar_filing(
+                    edgar_ticker, form_type, target_year=fy_input or None
+                )
             if ok:
-                fy = edgar_fiscal_year.strip() or desc[-5:-1]  # fallback: year from "(YYYY-MM-DD)"
-                with st.spinner("Chunking with section-aware pipeline..."):
-                    chunks = processor.process_filing(
-                        source=desc,
-                        company=edgar_company,
-                        ticker=edgar_ticker,
-                        cik=edgar_cik,
-                        form_type=form_type,
-                        fiscal_year=fy,
-                        text=text,
-                        text_source="edgar_fetch",
-                    )
-                st.session_state.all_chunks.extend(chunks)
-                st.session_state.loaded_docs.append({"source": desc, "chunks": len(chunks), "chars": len(text)})
-                st.session_state.rag_system = None
-                st.success(f"✅ {desc} — {len(chunks)} chunks")
+                if any(d["source"] == desc for d in st.session_state.loaded_docs):
+                    st.warning(f"⚠️ Already loaded: {desc}")
+                else:
+                    fy = fy_input or desc[-5:-1]  # fallback: year from "(YYYY-MM-DD)"
+                    with st.spinner("Chunking with section-aware pipeline..."):
+                        chunks = processor.process_filing(
+                            source=desc,
+                            company=edgar_company,
+                            ticker=edgar_ticker,
+                            cik=edgar_cik,
+                            form_type=form_type,
+                            fiscal_year=fy,
+                            text=text,
+                            text_source="edgar_fetch",
+                        )
+                    st.session_state.all_chunks.extend(chunks)
+                    st.session_state.loaded_docs.append({"source": desc, "chunks": len(chunks), "chars": len(text)})
+                    st.session_state.rag_system = None
+                    st.success(f"✅ {desc} — {len(chunks)} chunks")
             else:
                 st.error(desc)
                 st.info("Tip: Download the PDF from SEC.gov and upload it below.")
