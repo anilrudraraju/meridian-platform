@@ -17,6 +17,78 @@ from datetime import datetime
 from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass
 
+# ══════════════════════════════════════════════════════════════════════════════
+# SECTION & RETRIEVAL CONSTANTS
+# ══════════════════════════════════════════════════════════════════════════════
+
+# 10-K and Form 10 section patterns — Item number optional, title required
+SECTION_PATTERNS_10K = {
+    "business":         r"item\s*1[.\s]+business",
+    "risk_factors":     r"item\s*1a[.\s]+risk\s*factor",
+    "properties":       r"item\s*2[.\s]+propert",
+    "legal":            r"item\s*3[.\s]+legal",
+    "mdna":             r"item\s*7[.\s]+management",
+    "quantitative":     r"item\s*7a[.\s]+quantitative",
+    "financial_stmts":  r"item\s*8[.\s]+financial\s*state",
+    "controls":         r"item\s*9[.\s]",
+    "footnotes":        r"notes\s+to\s+(consolidated\s+)?financial",
+}
+
+# Form 10 extra sections not present in 10-K/10-Q
+SECTION_PATTERNS_FORM10_EXTRA = {
+    "dilution":               r"dilution",
+    "use_of_proceeds":        r"use\s+of\s+proceeds",
+    "capitalization":         r"capitalization",
+    "selected_financials":    r"selected\s+(consolidated\s+)?financial\s+data",
+    "related_party":          r"related\s+(party|person)\s+transactions",
+    "description_securities": r"description\s+of\s+(capital\s+)?securities",
+}
+
+# 10-Q uses Part I / Part II item numbering — different from 10-K
+SECTION_PATTERNS_10Q = {
+    "financial_stmts": r"(?:part\s*i\s+)?item\s*1[.\s]+financial\s*state",
+    "mdna":            r"(?:part\s*i\s+)?item\s*2[.\s]+management",
+    "quantitative":    r"(?:part\s*i\s+)?item\s*3[.\s]+quantitative",
+    "controls":        r"(?:part\s*i\s+)?item\s*4[.\s]+controls",
+    "legal":           r"(?:part\s*ii\s+)?item\s*1[.\s]+legal",
+    "risk_factors":    r"(?:part\s*ii\s+)?item\s*1a[.\s]+risk",
+    "footnotes":       r"notes\s+to\s+(condensed\s+)?(consolidated\s+)?financial",
+}
+
+# Financial statement header patterns — match near line starts (within 80 chars)
+STATEMENT_PATTERNS = {
+    "income_statement":     r"consolidated\s+statements?\s+of\s+(?:operations|income)",
+    "balance_sheet":        r"consolidated\s+(?:balance\s+sheets?|statements?\s+of\s+financial\s+position)",
+    "cash_flow":            r"consolidated\s+statements?\s+of\s+cash\s+flows?",
+    "equity":               r"statements?\s+of\s+(?:stockholders?[\s\']?\s*equity|changes\s+in\s+equity)",
+    "comprehensive_income": r"statements?\s+of\s+comprehensive\s+income",
+}
+
+# MD&A sub-section headers
+MDNA_SUBSECTION_PATTERNS = [
+    ("overview",             r"overview"),
+    ("results",              r"results\s+of\s+operations"),
+    ("liquidity",            r"liquidity\s+and\s+capital"),
+    ("critical_accounting",  r"critical\s+accounting"),
+    ("contractual",          r"contractual\s+obligations"),
+    ("off_balance",          r"off.balance\s+sheet"),
+    ("market_risk",          r"market\s+risk"),
+    ("recent_accounting",    r"recently\s+issued\s+accounting"),
+]
+
+# Query router keyword sets
+STRUCTURED_SIGNALS = {
+    "how much", "what was", "what were", "revenue", "income", "earnings",
+    "profit", "loss", "assets", "debt", "cash", "margin", "grew", "declined",
+    "increased", "decreased", "percent", "quarter", "fiscal year", "compared to",
+    "how many", "total", "net", "gross",
+}
+NARRATIVE_SIGNALS = {
+    "why", "how did", "explain", "describe", "what are", "risk", "strategy",
+    "outlook", "reason", "factor", "management", "competitive", "concern",
+    "discuss", "what caused", "what drove",
+}
+
 st.set_page_config(
     page_title="Meridian Intelligence Platform",
     page_icon="📊",
@@ -540,6 +612,119 @@ class DocumentProcessor:
     def load_from_txt_bytes(self, txt_bytes: bytes, source: str) -> List[Dict]:
         return self.chunk_text(txt_bytes.decode("utf-8", errors="ignore"), source)
 
+    def _extract_text_from_pdf(self, pdf_bytes: bytes, source: str) -> str:
+        """Extract raw text from PDF bytes using pdfplumber (table-aware)."""
+        try:
+            import pdfplumber
+            pages = []
+            with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+                for page in pdf.pages:
+                    parts = []
+                    try:
+                        for row in (page.extract_tables() or []):
+                            for r in row:
+                                if r:
+                                    line = " | ".join(c.strip() if c else "" for c in r)
+                                    if line.strip(" |"):
+                                        parts.append(line)
+                    except Exception:
+                        pass
+                    try:
+                        prose = page.extract_text()
+                        if prose:
+                            parts.append(prose)
+                    except Exception:
+                        pass
+                    if parts:
+                        pages.append("\n".join(parts))
+            text = "\n".join(pages)
+            if text.strip():
+                st.caption(f"📄 Extracted with pdfplumber — {len(text):,} chars")
+                return text
+        except Exception:
+            pass
+        # Fallback: pypdf
+        try:
+            from pypdf import PdfReader
+            reader = PdfReader(io.BytesIO(pdf_bytes))
+            text = "\n".join(
+                p.extract_text() for p in reader.pages if p.extract_text()
+            )
+            if text.strip():
+                st.caption(f"📄 Extracted with pypdf — {len(text):,} chars")
+                return text
+        except Exception as e:
+            st.warning(f"PDF extraction failed for '{source}': {e}")
+        return ""
+
+    def process_filing(
+        self,
+        source:      str,
+        company:     str,
+        ticker:      str,
+        cik:         str,
+        form_type:   str,
+        fiscal_year: str,
+        quarter:     Optional[str] = None,
+        period_end:  Optional[str] = None,
+        pdf_bytes:   Optional[bytes] = None,
+        text:        Optional[str] = None,
+        text_source: str = "edgar_fetch",
+    ) -> List[Dict]:
+        """
+        Unified entry point for all filing types and input formats.
+        Provide either pdf_bytes (PDF upload) or text (EDGAR fetch), never both.
+        Both paths produce identical chunk format and metadata schema.
+        """
+        if pdf_bytes is not None:
+            raw_text = self._extract_text_from_pdf(pdf_bytes, source)
+            text_source = "pdf_upload"
+        elif text is not None:
+            raw_text = text
+        else:
+            raise ValueError("Must provide either pdf_bytes or text")
+
+        if not raw_text or not raw_text.strip():
+            return []
+
+        config = get_chunking_config(form_type)
+
+        # For Form 10, try XBRL to determine if financials can be skipped
+        xbrl_available = False
+        if config["xbrl_expected"] and ticker:
+            ok, _, _ = fetch_xbrl_facts(ticker)
+            xbrl_available = ok
+
+        # Build base metadata attached to every chunk
+        base_meta = {
+            "company": company or "", "ticker": ticker or "",
+            "cik": cik or "", "form_type": form_type or "",
+            "fiscal_year": fiscal_year or "", "quarter": quarter or "",
+            "period_end": period_end or "", "filed_date": "",
+            "source": source, "text_source": text_source,
+            "audited": form_type == "10-K",
+        }
+
+        sections = _split_into_sections(raw_text, form_type)
+        st.caption(f"📂 Detected sections: {', '.join(sections.keys())}")
+
+        chunks = _chunk_all_sections(sections, config, base_meta, xbrl_available)
+
+        # Sanitise metadata: ChromaDB requires str/int/float/bool — no None
+        clean_chunks = []
+        import hashlib
+        for chunk in chunks:
+            meta = {k: ("" if v is None else (True if v is True else
+                        (False if v is False else str(v) if not isinstance(v, (int, float)) else v)))
+                    for k, v in chunk["metadata"].items()}
+            chunk_key = f"{source}__{meta.get('section','')}__chunk_{meta.get('chunk_id',0)}"
+            clean_chunks.append({
+                "page_content": chunk["page_content"],
+                "metadata": meta,
+                "_id": hashlib.md5(chunk_key.encode()).hexdigest(),
+            })
+        return clean_chunks
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # RAG SYSTEM — week3_capstone.ipynb  (vector store: ChromaDB)
@@ -640,7 +825,10 @@ class RAGSystem:
         batch_size=100 keeps total request size well under API limits while
         reducing network round-trips vs. the old batch_size=20.
         """
-        # Truncate to stay within per-item token limit
+        # Warn before truncation — 5800 leaves margin before the 6000-char hard limit
+        for t in texts:
+            if len(t) > 5800:
+                st.caption(f"⚠️ Chunk truncated from {len(t):,} to 6,000 chars before embedding.")
         safe_texts = [t[:6000] if len(t) > 6000 else t for t in texts]
         all_embeddings = []
         for i in range(0, len(safe_texts), batch_size):
@@ -676,11 +864,15 @@ class RAGSystem:
             if overlap:
                 st.warning(f"⚠️ Re-indexing existing document(s): {', '.join(overlap)}. Previous chunks will be overwritten.")
 
-        # Build stable IDs — sanitize source name to avoid ChromaDB invalid ID errors
+        # Build stable IDs — use pre-computed _id from process_filing() when present
+        # (includes section in the key so chunks from different sections don't collide).
+        # Fall back to source+chunk_id for chunks from the legacy load_from_* path.
         import hashlib
         ids = [
-            hashlib.md5(f"{m.get('source','doc')}__chunk_{m.get('chunk_id', i)}".encode()).hexdigest()
-            for i, m in enumerate(metadatas)
+            c.get("_id") or hashlib.md5(
+                f"{m.get('source','doc')}__{m.get('section','')}_chunk_{m.get('chunk_id', i)}".encode()
+            ).hexdigest()
+            for i, (c, m) in enumerate(zip(chunks, metadatas))
         ]
         # ChromaDB metadata values must be str/int/float/bool
         safe_meta = [
@@ -704,21 +896,25 @@ class RAGSystem:
             )
         progress.empty()
 
-    def search(self, query: str, k: int = 5) -> List[SearchResult]:
+    def search(self, query: str, k: int = 5, where: Optional[dict] = None) -> List[SearchResult]:
         """
         Semantic search via ChromaDB.
         Returns List[SearchResult] — identical interface to week3_capstone.ipynb.
         ChromaDB cosine distance ∈ [0,2]; we convert to similarity ∈ [0,1].
+        where: optional ChromaDB metadata filter (build with build_chroma_filter())
         """
         if not self._indexed:
             raise ValueError("No documents indexed. Call index_documents first.")
 
         q_emb = self._embed([query])[0]
-        results = self._collection.query(
+        query_kwargs: dict = dict(
             query_embeddings=[q_emb],
             n_results=min(k, self._collection.count()),
             include=["documents", "metadatas", "distances"]
         )
+        if where:
+            query_kwargs["where"] = where
+        results = self._collection.query(**query_kwargs)
 
         search_results = []
         docs      = results.get("documents", [[]])[0] if results.get("documents") else []
@@ -793,7 +989,7 @@ Answer (with source citations):"""
 # EDGAR FETCHER — new helper (extends platform for real 10-K data)
 # ══════════════════════════════════════════════════════════════════════════════
 
-def fetch_edgar_filing(ticker: str, form_type: str = "10-K") -> Tuple[bool, str, str]:
+def fetch_edgar_filing(ticker: str, form_type: str = "10-K") -> Tuple[bool, str, str, str, str]:
     headers = {"User-Agent": "MeridianPlatform student@meridian.edu"}
     try:
         r = requests.get("https://www.sec.gov/files/company_tickers.json", headers=headers, timeout=10)
@@ -805,7 +1001,7 @@ def fetch_edgar_filing(ticker: str, form_type: str = "10-K") -> Tuple[bool, str,
                 company_name = entry["title"]
                 break
         if not cik:
-            return False, "", f"Ticker '{ticker}' not found in SEC EDGAR"
+            return False, "", f"Ticker '{ticker}' not found in SEC EDGAR", "", ""
 
         r2 = requests.get(f"https://data.sec.gov/submissions/CIK{cik}.json", headers=headers, timeout=10)
         sub = r2.json()
@@ -815,9 +1011,9 @@ def fetch_edgar_filing(ticker: str, form_type: str = "10-K") -> Tuple[bool, str,
         dates = filings.get("filingDate", [])
         idx = next((i for i, f in enumerate(forms) if f == form_type), None)
         if idx is None:
-            return False, "", f"No {form_type} found for {ticker}"
+            return False, "", f"No {form_type} found for {ticker}", "", ""
         if idx >= len(accessions) or idx >= len(dates):
-            return False, "", f"SEC data for {ticker} is inconsistent (lists have different lengths). Try a different form type."
+            return False, "", f"SEC data for {ticker} is inconsistent (lists have different lengths). Try a different form type.", "", ""
 
         raw_acc = accessions[idx]
         acc_no = raw_acc.replace("-", "")
@@ -825,17 +1021,17 @@ def fetch_edgar_filing(ticker: str, form_type: str = "10-K") -> Tuple[bool, str,
         text_url = f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{acc_no}/{raw_acc}.txt"
         r3 = requests.get(text_url, headers=headers, timeout=30)
         if r3.status_code != 200:
-            return False, "", f"Download failed (HTTP {r3.status_code}). Upload the PDF manually."
+            return False, "", f"Download failed (HTTP {r3.status_code}). Upload the PDF manually.", "", ""
         clean = re.sub(r'<[^>]+>', ' ', r3.text)
-        # Cap at 300k chars (~75k tokens) — much larger than before, 
+        # Cap at 300k chars (~75k tokens) — much larger than before,
         # still avoids memory issues. Show warning if truncated.
         char_cap = 300000
         if len(clean) > char_cap:
             st.warning(f"Document truncated to {char_cap:,} chars for processing. Full filing may contain more.")
         clean = clean[:char_cap]
-        return True, clean, f"{company_name} {form_type} ({filing_date})"
+        return True, clean, f"{company_name} {form_type} ({filing_date})", cik, company_name
     except Exception as e:
-        return False, "", f"EDGAR error: {e}"
+        return False, "", f"EDGAR error: {e}", "", ""
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -970,6 +1166,472 @@ class MarketDataFetcher:
             except Exception as e:
                 errors.append(f"{ticker}: {str(e)[:40]}")
         return results, total_value, errors
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CHUNKING PIPELINE HELPERS
+# ══════════════════════════════════════════════════════════════════════════════
+
+def get_chunking_config(form_type: str) -> dict:
+    # Normalise UI label "Form 10" → internal key "10"
+    if form_type == "Form 10":
+        form_type = "10"
+    configs = {
+        "10-K": {"business_chunk_size": 1500, "business_overlap": 300,
+                 "mdna_chunk_size": 2000, "mdna_overlap": 400,
+                 "skip_financial_stmts": True, "xbrl_expected": True,
+                 "has_extra_sections": False, "check_predecessor": False},
+        "10-Q": {"business_chunk_size": 1500, "business_overlap": 300,
+                 "mdna_chunk_size": 1500, "mdna_overlap": 300,
+                 "skip_financial_stmts": True, "xbrl_expected": True,
+                 "has_extra_sections": False, "check_predecessor": False},
+        "10":   {"business_chunk_size": 2500, "business_overlap": 500,
+                 "mdna_chunk_size": 2000, "mdna_overlap": 400,
+                 "skip_financial_stmts": False, "xbrl_expected": False,
+                 "has_extra_sections": True, "check_predecessor": True},
+    }
+    return configs.get(form_type, configs["10-K"])
+
+
+def _parse_filename_metadata(filename: str) -> dict:
+    """Best-effort extraction of ticker, form_type, fiscal_year, quarter from filename."""
+    meta = {"ticker": None, "form_type": None, "fiscal_year": None, "quarter": None}
+    name = re.sub(r'\.(pdf|txt)$', '', filename, flags=re.IGNORECASE).upper()
+
+    if re.search(r'10.?K', name):   meta["form_type"] = "10-K"
+    elif re.search(r'10.?Q', name): meta["form_type"] = "10-Q"
+    elif re.search(r'\b10\b', name): meta["form_type"] = "10"
+
+    m = re.search(r'(20\d{2})', name)
+    if m: meta["fiscal_year"] = m.group(1)
+
+    # Use lookahead instead of \b — underscore is \w so Q2_ has no word boundary
+    q = re.search(r'Q([123])(?=[_\-\s]|$)', name)
+    if q: meta["quarter"] = f"Q{q.group(1)}"
+
+    t = re.match(r'^([A-Z]{1,5})[_\-\s]', name)
+    if t: meta["ticker"] = t.group(1)
+
+    return meta
+
+
+def _detect_fiscal_year_end(text: str) -> Optional[str]:
+    """Return MM-DD fiscal year end from cover page text, or None."""
+    cover = text[:3000]
+    for pattern in [
+        r'fiscal\s+year\s+end(?:ed|ing)\s+(\w+\s+\d{1,2},?\s*\d{4})',
+        r'year\s+ended\s+(\w+\s+\d{1,2},?\s*\d{4})',
+    ]:
+        m = re.search(pattern, cover, re.IGNORECASE)
+        if m:
+            from datetime import datetime
+            for fmt in ["%B %d, %Y", "%B %d %Y", "%b %d, %Y", "%b %d %Y"]:
+                try:
+                    d = datetime.strptime(m.group(1).strip(), fmt)
+                    return f"{d.month:02d}-{d.day:02d}"
+                except ValueError:
+                    continue
+    return None
+
+
+def _detect_quarter_from_text(text: str, fiscal_year_end_mmdd: Optional[str]) -> Optional[str]:
+    """Map period-end date on cover page to Q1/Q2/Q3 using fiscal year end as anchor."""
+    cover = text[:3000]
+    period_date = None
+    for pattern in [
+        r'(?:period|quarter)\s+ended\s+(\w+\s+\d{1,2},?\s*\d{4})',
+        r'three\s+months\s+ended\s+(\w+\s+\d{1,2},?\s*\d{4})',
+        r'nine\s+months\s+ended\s+(\w+\s+\d{1,2},?\s*\d{4})',
+    ]:
+        m = re.search(pattern, cover, re.IGNORECASE)
+        if m:
+            from datetime import datetime
+            for fmt in ["%B %d, %Y", "%B %d %Y", "%b %d, %Y"]:
+                try:
+                    period_date = datetime.strptime(m.group(1).strip(), fmt)
+                    break
+                except ValueError:
+                    continue
+        if period_date:
+            break
+    if not period_date:
+        return None
+    fy_month = int(fiscal_year_end_mmdd.split("-")[0]) if fiscal_year_end_mmdd else 12
+    months_from_fy_end = (period_date.month - fy_month) % 12
+    return {3: "Q1", 6: "Q2", 9: "Q3"}.get(months_from_fy_end)
+
+
+def _split_into_sections(text: str, form_type: str) -> Dict[str, str]:
+    """Split full filing text into {section_name: section_text} using SEC Item headers."""
+    # Normalise UI label "Form 10" → internal key "10"
+    if form_type == "Form 10":
+        form_type = "10"
+    if form_type == "10-Q":
+        patterns = SECTION_PATTERNS_10Q
+    else:
+        patterns = dict(SECTION_PATTERNS_10K)
+        if form_type == "10":
+            patterns.update(SECTION_PATTERNS_FORM10_EXTRA)
+
+    matches = []
+    for section_name, pattern in patterns.items():
+        m = re.search(pattern, text, re.IGNORECASE)
+        if m:
+            matches.append((m.start(), section_name))
+
+    if not matches:
+        return {"general": text}
+
+    matches.sort(key=lambda x: x[0])
+    sections = {}
+    for i, (start, name) in enumerate(matches):
+        end = matches[i + 1][0] if i + 1 < len(matches) else len(text)
+        section_text = text[start:end].strip()
+        if section_text:
+            sections[name] = section_text
+    return sections
+
+
+def _chunk_by_paragraphs(text: str, chunk_size: int, overlap: int,
+                          min_length: int = 100) -> List[str]:
+    """Split on double newlines first; fall back to character sliding window."""
+    paragraphs = [p.strip() for p in re.split(r'\n\s*\n', text) if p.strip()]
+    chunks, current = [], ""
+    for para in paragraphs:
+        if len(current) + len(para) + 2 <= chunk_size:
+            current = (current + "\n\n" + para).strip() if current else para
+        else:
+            if len(current) >= min_length:
+                chunks.append(current)
+            if len(para) > chunk_size:
+                step = max(1, chunk_size - overlap)
+                for j in range(0, len(para), step):
+                    piece = para[j:j + chunk_size]
+                    if len(piece) >= min_length:
+                        chunks.append(piece)
+                current = ""
+            else:
+                current = para
+    if len(current) >= min_length:
+        chunks.append(current)
+    return chunks
+
+
+def _chunk_business(text: str, config: dict, base_meta: dict) -> List[Dict]:
+    pieces = _chunk_by_paragraphs(text, config["business_chunk_size"],
+                                  config["business_overlap"], min_length=100)
+    return [{"page_content": p,
+             "metadata": {**base_meta, "section": "business", "chunk_id": i}}
+            for i, p in enumerate(pieces)]
+
+
+def _chunk_risk_factors(text: str, config: dict, base_meta: dict) -> List[Dict]:
+    # 10-Q minimal risk section — store as single chunk
+    if len(text.strip()) < 300:
+        return [{"page_content": text.strip(),
+                 "metadata": {**base_meta, "section": "risk_factors",
+                               "chunk_id": 0, "risk_update": "no_material_changes",
+                               "risk_header": ""}}]
+    # Detect per-risk headers: ALL CAPS or Title Case, 15-100 chars, own line
+    header_re = re.compile(
+        r'(?m)^[ \t]*([A-Z][A-Z\s,\-\']{14,98}[A-Z]'
+        r'|(?:[A-Z][a-z]+(?:\s+[A-Z][a-z]+){2,}))[ \t]*$'
+    )
+    matches = list(header_re.finditer(text))
+    if len(matches) < 2:
+        pieces = _chunk_by_paragraphs(text, 1500, 300, min_length=150)
+        return [{"page_content": p,
+                 "metadata": {**base_meta, "section": "risk_factors",
+                               "chunk_id": i, "risk_header": "", "risk_update": ""}}
+                for i, p in enumerate(pieces)]
+    chunks = []
+    for i, m in enumerate(matches):
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        piece = text[m.start():end].strip()
+        if len(piece) >= 150:
+            chunks.append({"page_content": piece,
+                           "metadata": {**base_meta, "section": "risk_factors",
+                                         "chunk_id": i, "risk_update": "",
+                                         "risk_header": m.group(1).strip()[:100]}})
+    return chunks
+
+
+def _chunk_mdna(text: str, config: dict, base_meta: dict) -> List[Dict]:
+    sub_matches = []
+    for name, pattern in MDNA_SUBSECTION_PATTERNS:
+        m = re.search(pattern, text, re.IGNORECASE)
+        if m:
+            sub_matches.append((m.start(), name))
+    sub_matches.sort(key=lambda x: x[0])
+
+    if not sub_matches:
+        pieces = _chunk_by_paragraphs(text, config["mdna_chunk_size"],
+                                      config["mdna_overlap"], min_length=100)
+        return [{"page_content": p,
+                 "metadata": {**base_meta, "section": "mdna",
+                               "subsection": "", "chunk_id": i}}
+                for i, p in enumerate(pieces)]
+
+    chunks, chunk_id = [], 0
+    for i, (start, sub_name) in enumerate(sub_matches):
+        end = sub_matches[i + 1][0] if i + 1 < len(sub_matches) else len(text)
+        sub_text = text[start:end].strip()
+        if len(sub_text) < 100:
+            continue
+        for piece in _chunk_by_paragraphs(sub_text, config["mdna_chunk_size"],
+                                           config["mdna_overlap"], min_length=100):
+            chunks.append({"page_content": piece,
+                           "metadata": {**base_meta, "section": "mdna",
+                                         "subsection": sub_name, "chunk_id": chunk_id}})
+            chunk_id += 1
+    return chunks
+
+
+def _detect_statement_boundaries(text: str) -> List[Tuple[int, str]]:
+    """Find financial statement headers near line starts (within 80 chars of newline)."""
+    boundaries, seen = [], set()
+    for stmt_type, pattern in STATEMENT_PATTERNS.items():
+        for m in re.finditer(pattern, text, re.IGNORECASE):
+            preceding = text[max(0, m.start() - 80):m.start()]
+            if ('\n' in preceding or m.start() < 80) and stmt_type not in seen:
+                boundaries.append((m.start(), stmt_type))
+                seen.add(stmt_type)
+                break
+    boundaries.sort(key=lambda x: x[0])
+    return boundaries
+
+
+def _scan_audit_status(chunk_text: str, period_end: str) -> Tuple[bool, str]:
+    """Scan first 300 chars of a financial statement chunk for audit status (Form 10 only)."""
+    window = chunk_text[:300].lower()
+    if "unaudited" in window:
+        return False, "unaudited interim period"
+    if "predecessor" in window:
+        return True, "predecessor period audited"
+    # Secondary: mid-year period end without standard quarter-end month
+    if period_end:
+        try:
+            from datetime import date
+            d = date.fromisoformat(period_end)
+            if d.month not in (3, 6, 9, 12):
+                return True, "audit status uncertain"
+        except ValueError:
+            pass
+    if ("see accompanying notes" not in chunk_text.lower()
+            and "see notes" not in chunk_text.lower()
+            and len(chunk_text) < 1000):
+        return True, "audit status uncertain"
+    return True, "current period audited"
+
+
+def _chunk_financial_stmts(text: str, config: dict, base_meta: dict,
+                            xbrl_available: bool) -> List[Dict]:
+    if config["skip_financial_stmts"] and xbrl_available:
+        return []
+
+    boundaries = _detect_statement_boundaries(text)
+    if not boundaries:
+        st.warning("⚠️ Could not detect individual financial statement boundaries in Item 8 — storing as single block.")
+        meta = {**base_meta, "section": "financial_stmts", "subsection": "general",
+                "statement_type": "general", "atomic_chunk": True,
+                "data_source": "pdf_extracted"}
+        return [{"page_content": text[:6000], "metadata": meta}]
+
+    chunks, chunk_id = [], 0
+    form_type = base_meta.get("form_type", "10-K")
+
+    for i, (start, stmt_type) in enumerate(boundaries):
+        end = boundaries[i + 1][0] if i + 1 < len(boundaries) else len(text)
+        stmt_text = text[start:end].strip()
+
+        if len(stmt_text) < 500 or len(re.findall(r'\d+', stmt_text)) < 5:
+            continue  # TOC false positive
+
+        if form_type in ("10", "Form 10"):
+            audited, audit_note = _scan_audit_status(stmt_text, base_meta.get("period_end", ""))
+            window = stmt_text[:500].lower()
+            period_type = ("predecessor" if "predecessor" in window
+                           else "successor" if any(w in window for w in
+                                                   ("successor", "fresh-start", "reorganization"))
+                           else "")
+        else:
+            audited = form_type == "10-K"
+            audit_note = "current period audited" if audited else "unaudited interim period"
+            period_type = ""
+
+        base_stmt = {**base_meta, "section": "financial_stmts",
+                     "statement_type": stmt_type, "audited": audited,
+                     "audit_note": audit_note, "period_type": period_type,
+                     "data_source": "pdf_extracted" if not xbrl_available else "xbrl"}
+
+        if len(stmt_text) <= 5800:
+            chunks.append({"page_content": stmt_text,
+                           "metadata": {**base_stmt, "chunk_id": chunk_id,
+                                         "atomic_chunk": True}})
+            chunk_id += 1
+        else:
+            parts = [p.strip() for p in re.split(r'\n\s*\n', stmt_text) if p.strip()]
+            part_chunks, current = [], ""
+            for part in parts:
+                if len(current) + len(part) + 2 <= 5800:
+                    current = (current + "\n\n" + part).strip() if current else part
+                else:
+                    if current:
+                        part_chunks.append(current)
+                    current = part
+            if current:
+                part_chunks.append(current)
+
+            total = len(part_chunks)
+            for j, part_text in enumerate(part_chunks):
+                content = part_text if j == 0 else \
+                    f"[Continued: {stmt_type.replace('_', ' ').title()}]\n\n{part_text}"
+                chunks.append({"page_content": content,
+                               "metadata": {**base_stmt, "chunk_id": chunk_id,
+                                             "atomic_chunk": False,
+                                             "part_number": j + 1,
+                                             "total_parts": total}})
+                chunk_id += 1
+    return chunks
+
+
+def _chunk_footnotes(text: str, config: dict, base_meta: dict) -> List[Dict]:
+    note_re = re.compile(r'(?m)^[ \t]*(?:Note\s+(\d+)|(\d+)\.)[ \t]+\S', re.IGNORECASE)
+    matches = list(note_re.finditer(text))
+    if len(matches) < 2:
+        pieces = _chunk_by_paragraphs(text, 1000, 200, min_length=150)
+        return [{"page_content": p,
+                 "metadata": {**base_meta, "section": "footnotes",
+                               "chunk_id": i, "footnote_number": 0}}
+                for i, p in enumerate(pieces)]
+    chunks = []
+    for i, m in enumerate(matches):
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        piece = text[m.start():end].strip()
+        note_num = int(m.group(1) or m.group(2))
+        if len(piece) >= 150:
+            chunks.append({"page_content": piece,
+                           "metadata": {**base_meta, "section": "footnotes",
+                                         "chunk_id": i, "footnote_number": note_num}})
+    return chunks
+
+
+def _chunk_default(text: str, chunk_size: int, overlap: int,
+                   section_name: str, base_meta: dict) -> List[Dict]:
+    pieces = _chunk_by_paragraphs(text, chunk_size, overlap, min_length=100)
+    return [{"page_content": p,
+             "metadata": {**base_meta, "section": section_name, "chunk_id": i}}
+            for i, p in enumerate(pieces)]
+
+
+def _chunk_all_sections(sections: Dict[str, str], config: dict,
+                         base_meta: dict, xbrl_available: bool) -> List[Dict]:
+    """Dispatch each section to its chunking strategy; return all chunks."""
+    all_chunks = []
+    for section_name, section_text in sections.items():
+        if not section_text.strip():
+            continue
+        meta = {**base_meta, "subsection": "", "risk_header": "",
+                "footnote_number": 0, "statement_type": "", "atomic_chunk": True,
+                "part_number": 1, "total_parts": 1, "risk_update": "",
+                "period_type": "", "audit_note": "", "audited": True}
+        if section_name == "business":
+            chunks = _chunk_business(section_text, config, meta)
+        elif section_name == "risk_factors":
+            chunks = _chunk_risk_factors(section_text, config, meta)
+        elif section_name == "mdna":
+            chunks = _chunk_mdna(section_text, config, meta)
+        elif section_name == "financial_stmts":
+            chunks = _chunk_financial_stmts(section_text, config, meta, xbrl_available)
+        elif section_name == "footnotes":
+            chunks = _chunk_footnotes(section_text, config, meta)
+        else:
+            chunks = _chunk_default(section_text, 1000, 200, section_name, meta)
+        all_chunks.extend(chunks)
+    return all_chunks
+
+
+# ── Query routing & retrieval ─────────────────────────────────────────────────
+
+def build_chroma_filter(filters: dict) -> Optional[dict]:
+    """Build a ChromaDB $and filter from a dict, dropping None and empty values."""
+    valid = {k: str(v) for k, v in filters.items() if v is not None and v != ""}
+    if not valid:
+        return None
+    if len(valid) == 1:
+        k, v = next(iter(valid.items()))
+        return {k: {"$eq": v}}
+    return {"$and": [{k: {"$eq": v}} for k, v in valid.items()]}
+
+
+def route_query(question: str) -> str:
+    """Classify question as 'structured', 'narrative', or 'both'."""
+    q = question.lower()
+    s = sum(1 for sig in STRUCTURED_SIGNALS if sig in q)
+    n = sum(1 for sig in NARRATIVE_SIGNALS if sig in q)
+    if s > n: return "structured"
+    if n > s: return "narrative"
+    return "both"
+
+
+def retrieve(question: str, ticker: str, fiscal_year: str, form_type: str,
+             quarter: Optional[str], rag: "RAGSystem",
+             xbrl_facts: dict) -> str:
+    """
+    Route question → pull XBRL facts and/or RAG chunks → return combined context string.
+    """
+    store = route_query(question)
+    q_lower = question.lower()
+    parts = []
+
+    # ── Structured path: XBRL metrics ────────────────────────────────────────
+    if store in ("structured", "both") and xbrl_facts:
+        metric_lines = []
+        for label, entries in xbrl_facts.items():
+            form_filter = "10-K" if form_type == "10-K" else "10-Q"
+            period_entries = [e for e in entries if e.get("form") == form_filter]
+            if fiscal_year:
+                period_entries = [e for e in period_entries
+                                  if e.get("period_end", "").startswith(fiscal_year)]
+            if period_entries:
+                e = period_entries[0]
+                metric_lines.append(
+                    f"{label} ({e.get('period_end', '')}): {_fmt_xbrl(e['value'], label)}"
+                )
+        if metric_lines:
+            parts.append("STRUCTURED DATA (XBRL):\n" + "\n".join(metric_lines))
+
+    # ── Narrative path: RAG chunks ────────────────────────────────────────────
+    if store in ("narrative", "both") and rag and rag.count() > 0:
+        # Detect section hint from question keywords
+        section_hint = None
+        if any(w in q_lower for w in ("risk", "risks")):
+            section_hint = "risk_factors"
+        elif any(w in q_lower for w in ("strategy", "business", "competition")):
+            section_hint = "business"
+        elif any(w in q_lower for w in ("why", "margin", "revenue", "md&a", "management")):
+            section_hint = "mdna"
+        elif any(w in q_lower for w in ("note", "debt", "lease", "footnote")):
+            section_hint = "footnotes"
+
+        where = build_chroma_filter({
+            "ticker":      ticker,
+            "fiscal_year": fiscal_year,
+            "form_type":   form_type,
+            "quarter":     quarter,
+            "section":     section_hint,
+        })
+        results = rag.search(question, k=10, where=where)
+        results = [r for r in results if r.relevance_score >= 0.55]
+        if results:
+            narrative = "\n\n".join(
+                f"[Source {i+1} | {r.metadata.get('section','')} "
+                f"| score {r.relevance_score:.2f}]\n{r.content}"
+                for i, r in enumerate(results)
+            )
+            parts.append("NARRATIVE CONTEXT (RAG):\n" + narrative)
+
+    return "\n\n---\n\n".join(parts) if parts else ""
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1160,12 +1822,25 @@ RAG retrieves the most relevant passages from uploaded documents and grounds the
     with s1:
         st.markdown("#### 🏛️ Auto-Fetch from SEC EDGAR")
         edgar_ticker = st.text_input("Ticker", placeholder="AAPL").upper().strip()
-        form_type = st.selectbox("Form", ["10-K", "10-Q", "8-K"])
+        form_type = st.selectbox("Form", ["10-K", "10-Q", "Form 10", "8-K"])
+        edgar_fiscal_year = st.text_input("Fiscal Year", placeholder="2024", max_chars=4,
+                                          help="4-digit fiscal year (e.g. 2024). Auto-detected if blank.")
         if st.button("📥 Fetch from EDGAR", disabled=not edgar_ticker):
             with st.spinner(f"Fetching {form_type} for {edgar_ticker}..."):
-                ok, text, desc = fetch_edgar_filing(edgar_ticker, form_type)
+                ok, text, desc, edgar_cik, edgar_company = fetch_edgar_filing(edgar_ticker, form_type)
             if ok:
-                chunks = processor.load_from_text(text, source=desc)
+                fy = edgar_fiscal_year.strip() or desc[-5:-1]  # fallback: year from "(YYYY-MM-DD)"
+                with st.spinner("Chunking with section-aware pipeline..."):
+                    chunks = processor.process_filing(
+                        source=desc,
+                        company=edgar_company,
+                        ticker=edgar_ticker,
+                        cik=edgar_cik,
+                        form_type=form_type,
+                        fiscal_year=fy,
+                        text=text,
+                        text_source="edgar_fetch",
+                    )
                 st.session_state.all_chunks.extend(chunks)
                 st.session_state.loaded_docs.append({"source": desc, "chunks": len(chunks), "chars": len(text)})
                 st.session_state.rag_system = None
@@ -1177,18 +1852,34 @@ RAG retrieves the most relevant passages from uploaded documents and grounds the
     with s2:
         st.markdown("#### 📁 Upload PDF or TXT")
         uploaded = st.file_uploader("Upload documents", type=["pdf", "txt"], accept_multiple_files=True)
-        table_aware = st.checkbox(
-            "🐢 Table-aware extraction (pdfplumber — slower but preserves table structure)",
-            value=False,
-            help="Unchecked = fast mode via pypdf (~15-30s per file). Checked = pdfplumber table extraction (2+ mins for large 10-Qs)."
-        )
+        col_ft, col_fy = st.columns(2)
+        with col_ft:
+            upload_form_type = st.selectbox("Form type", ["10-K", "10-Q", "Form 10", "8-K"],
+                                            key="upload_form_type")
+        with col_fy:
+            upload_fiscal_year = st.text_input("Fiscal year", placeholder="2024", max_chars=4,
+                                               key="upload_fiscal_year",
+                                               help="Auto-detected from filename if blank (e.g. AAPL_10K_2024.pdf).")
+        upload_ticker = st.text_input("Ticker (optional)", placeholder="AAPL", key="upload_ticker",
+                                      help="Used for XBRL availability check — leave blank if unknown.")
         if uploaded:
             for f in uploaded:
                 if not any(d["source"] == f.name for d in st.session_state.loaded_docs):
-                    with st.spinner(f"Processing {f.name}..."):
-                        chunks = (processor.load_from_pdf_bytes(f.read(), f.name, table_aware=table_aware)
-                                  if f.name.endswith(".pdf")
-                                  else processor.load_from_txt_bytes(f.read(), f.name))
+                    fname_meta = _parse_filename_metadata(f.name)
+                    ft   = upload_form_type or fname_meta.get("form_type", "10-K")
+                    fy   = upload_fiscal_year.strip() or fname_meta.get("fiscal_year", "")
+                    tick = upload_ticker.strip().upper() or fname_meta.get("ticker", "")
+                    with st.spinner(f"Processing {f.name} with section-aware pipeline..."):
+                        raw = f.read()
+                        if f.name.endswith(".pdf"):
+                            chunks = processor.process_filing(
+                                source=f.name, company="", ticker=tick,
+                                cik="", form_type=ft, fiscal_year=fy,
+                                pdf_bytes=raw,
+                            )
+                        else:
+                            # TXT files: use legacy path (no structured section headers expected)
+                            chunks = processor.load_from_txt_bytes(raw, f.name)
                     st.session_state.all_chunks.extend(chunks)
                     st.session_state.loaded_docs.append({"source": f.name, "chunks": len(chunks), "chars": sum(len(c["page_content"]) for c in chunks)})
                     st.session_state.rag_system = None
@@ -1225,7 +1916,7 @@ RAG retrieves the most relevant passages from uploaded documents and grounds the
             else:
                 st.info("ChromaDB collection is empty — load documents above then index them")
         with db_col2:
-            st.caption(f"📂 Persist path: `~/.meridian_chromadb/`")
+            st.caption(f"📂 Persist path: `/tmp/meridian_chromadb`")
         with db_col3:
             if st.button("🗑️ Clear Index", help="Wipe ChromaDB and start fresh"):
                 st.session_state.rag_system.clear()

@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project Overview
 - **App:** Meridian Intelligence Platform — 10-layer AI wealth management platform
 - **Case Study:** Global Fiscal Group ($12.8B AUM)
-- **Stack:** Python + Streamlit, single `app.py` file (~1,550 lines)
+- **Stack:** Python + Streamlit, single `app.py` file (~2,200 lines)
 - **Live URL:** https://meridian-platform.streamlit.app
 - **Repo:** https://github.com/anilrudraraju/meridian-platform
 - **Deploy:** Every push to `main` triggers auto-redeploy on Streamlit Cloud (~60s)
@@ -149,24 +149,74 @@ class RAGResponse:
     confidence: str  # "High" (>0.75), "Medium" (>0.60), "Low"
 
 class DocumentProcessor:
-    # chunk_size=2000, chunk_overlap=400
-    # chunk_text pre-scans for SEC "ITEM N" headers and tags each chunk with a "section" metadata field
-    def chunk_text(self, text: str, source: str) -> List[Dict]
-    def load_from_text(self, text: str, source: str) -> List[Dict]
-    def load_from_pdf_bytes(self, pdf_bytes: bytes, source: str, table_aware: bool = False) -> List[Dict]
-    #   table_aware=False → pypdf (fast, ~15-30s per file, default)
-    #   table_aware=True  → pdfplumber (2+ min for large 10-Qs, preserves table structure)
+    # Legacy methods (still used for TXT files):
+    def chunk_text(self, text: str, source: str) -> List[Dict]          # 2000/400 sliding window + section tag
+    def load_from_text(self, text: str, source: str) -> List[Dict]      # wraps chunk_text
     def load_from_txt_bytes(self, txt_bytes: bytes, source: str) -> List[Dict]
+    def load_from_pdf_bytes(self, pdf_bytes: bytes, source: str, table_aware: bool = False) -> List[Dict]
+
+    # NEW unified entry point — use this for all SEC filings (10-K, 10-Q, Form 10):
+    def process_filing(
+        self, source: str, company: str, ticker: str, cik: str,
+        form_type: str, fiscal_year: str,
+        quarter: str = None, period_end: str = None,
+        pdf_bytes: bytes = None, text: str = None,
+        text_source: str = "edgar_fetch"
+    ) -> List[Dict]
+    # Calls _split_into_sections() → per-section chunkers → sanitised metadata with MD5 IDs
+    # Sections: business, risk_factors, mdna, financial_stmts, footnotes, quantitative, controls, legal, default
+    # Each chunk metadata: company, ticker, cik, form_type, fiscal_year, quarter, period_end,
+    #                       section, sub_section, chunk_id, total_chunks, source, text_source, audited
 
 class RAGSystem:
     def index_documents(self, chunks: List[Dict]) -> None
-    def search(self, query: str, k: int = 5) -> List[SearchResult]
-    def answer_question(self, question: str, k: int = 5) -> RAGResponse  # temperature=0; UI calls with k=10; filters results < 0.55 similarity
+    def search(self, query: str, k: int = 5, where: dict = None) -> List[SearchResult]
+    # where: optional ChromaDB $and filter (build with build_chroma_filter())
+    def answer_question(self, question: str, k: int = 5) -> RAGResponse  # temperature=0; UI calls with k=10; filters < 0.55
     def analyze_risk_factors(self, company: str) -> RAGResponse
     def summarize_earnings(self, company: str, quarter: str) -> RAGResponse
     def clear(self) -> None   # delete + recreate ChromaDB collection
     def count(self) -> int    # number of chunks currently indexed
 ```
+
+#### Section-Aware Chunking Pipeline (Layer 3)
+
+Constants at top of `app.py` (before `st.set_page_config`):
+- `SECTION_PATTERNS_10K` — regex patterns for 10-K Item headers
+- `SECTION_PATTERNS_10Q` — regex patterns for 10-Q (Part I/II Item headers)
+- `SECTION_PATTERNS_FORM10_EXTRA` — additional patterns for Form 10 IPO filings
+- `STATEMENT_PATTERNS` — patterns for individual financial statement headers
+- `MDNA_SUBSECTION_PATTERNS` — patterns for MD&A sub-sections (overview, results, liquidity, etc.)
+- `STRUCTURED_SIGNALS` / `NARRATIVE_SIGNALS` — keyword sets for query routing
+
+Standalone helper functions (added before "STREAMLIT UI" section):
+```python
+get_chunking_config(form_type)            # returns {chunk_size, overlap, strategies, xbrl_expected, ...}
+_parse_filename_metadata(filename)        # extracts ticker, form_type, fiscal_year, quarter from filename
+_detect_fiscal_year_end(text)             # returns "MM-DD" from cover page text
+_detect_quarter_from_text(text, fy_end)  # maps period-end date → Q1/Q2/Q3 relative to fiscal year end
+_split_into_sections(text, form_type)    # returns {section_name: section_text}
+_chunk_by_paragraphs(text, size, overlap, min_len)
+_chunk_business() / _chunk_risk_factors() / _chunk_mdna()
+_chunk_financial_stmts() / _chunk_footnotes() / _chunk_default()
+_detect_statement_boundaries(text)       # finds income stmt / balance sheet / cash flow headers
+_scan_audit_status(chunk_text, period)   # Form 10 only — scans first 300 chars
+_chunk_all_sections(sections, config, base_meta, xbrl_available)  # dispatches to per-section chunkers
+build_chroma_filter(filters)             # builds ChromaDB $and filter; casts all values to str
+route_query(question)                    # returns "structured" | "narrative" | "both"
+retrieve(question, ticker, fiscal_year, form_type, quarter, rag, xbrl_facts)
+# unified retrieval: XBRL facts for structured, RAG chunks for narrative
+```
+
+Per-section chunk strategies:
+| Section | Strategy | Chunk size / overlap |
+|---------|----------|---------------------|
+| business | paragraph-split | 1500 / 300 |
+| risk_factors | per-risk header | 1000 / 200 |
+| mdna | two-level sub-section split | 1200 / 250 |
+| financial_stmts | statement-level atomic | split on blank lines |
+| footnotes | per-note | 800 / 150 |
+| default | sliding window | 1000 / 200 |
 
 ### Layer 4 — `FinancialEvaluator`
 ```python
@@ -191,9 +241,9 @@ class FinancialEvaluator:
 class MarketDataFetcher:
     def fetch_portfolio(self, holdings: Dict[str, float]) -> Tuple[List[Dict], float, List[str]]
 
-def fetch_edgar_filing(ticker: str, form_type: str = "10-K") -> Tuple[bool, str, str]:
-    # char_cap = 300,000 chars
-    # 10-Qs work well; 10-Ks often exceed cap — use PDF upload instead
+def fetch_edgar_filing(ticker: str, form_type: str = "10-K") -> Tuple[bool, str, str, str, str]:
+    # Returns (ok, text, desc, cik, company_name)
+    # char_cap = 300,000 chars; 10-Ks often exceed cap — use PDF upload instead
 
 def fetch_xbrl_facts(ticker: str) -> Tuple[bool, Dict, str]:
     # Returns {metric_label: [{value, period_end, period_start, form, filed, period}]}
