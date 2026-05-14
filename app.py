@@ -976,6 +976,25 @@ Answer (with source citations):"""
         confidence = "High" if avg_score > 0.75 else "Medium" if avg_score > 0.60 else "Low"
         return RAGResponse(question=question, answer=answer, sources=results, confidence=confidence)
 
+    def answer_with_context(self, question: str, context: str) -> str:
+        """Generate an answer from pre-built context (used by the dual-store retrieve path)."""
+        prompt = f"""You are a financial analyst at Meridian Wealth Partners.
+Answer the question using ONLY the data provided below.
+If the answer is not in the data, say "I don't have enough information."
+Be specific and cite figures directly.
+
+{context}
+
+Question: {question}
+
+Answer:"""
+        resp = self._openai.chat.completions.create(
+            model=self.model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0
+        )
+        return resp.choices[0].message.content
+
     def analyze_risk_factors(self, company: str) -> RAGResponse:
         """week3_capstone.ipynb method — unchanged"""
         return self.answer_question(f"What are the main risk factors for {company}?")
@@ -1981,6 +2000,20 @@ RAG retrieves the most relevant passages from uploaded documents and grounds the
             "What are the biggest threats to the business?",
         ]
 
+        # Optional filters — used for ChromaDB pre-filtering and XBRL routing
+        filt1, filt2 = st.columns(2)
+        with filt1:
+            q_ticker = st.text_input(
+                "Ticker filter", placeholder="e.g. GOOGL", key="q3_ticker",
+                value=st.session_state.get("xbrl_ticker_input", ""),
+                help="Narrows search to this company. Also enables XBRL routing if Step 4 facts are loaded."
+            ).upper().strip()
+        with filt2:
+            q_fiscal_year = st.text_input(
+                "Year filter", placeholder="e.g. 2024", key="q3_fiscal_year",
+                help="Narrows search to this fiscal year."
+            ).strip()
+
         q1, q2 = st.columns([3, 1])
         with q1:
             user_q = st.text_input("Ask a question", placeholder="e.g. What are the top 5 risk factors?")
@@ -1994,47 +2027,85 @@ RAG retrieves the most relevant passages from uploaded documents and grounds the
             if rag is None:
                 st.error("RAG system is not initialized. Please index documents first.")
                 st.stop()
-            with st.spinner("Running RAGSystem.answer_question()..."):
-                # k=10: financial docs reference the same figure in multiple sections
-                # (income statement, MD&A, segment tables) — wider retrieval improves recall
-                response: RAGResponse = rag.answer_question(final_q, k=10)
 
-            st.markdown("### 💡 Answer")
-            st.markdown(response.answer)
-            conf_colors = {"High": "green", "Medium": "orange", "Low": "red"}
-            c = conf_colors.get(response.confidence, "gray")
-            st.markdown(f"**Confidence:** :{c}[{response.confidence}]")
+            xbrl_facts = st.session_state.get("xbrl_facts", {})
+            route = route_query(final_q)
+            route_label = {"structured": "🔢 XBRL", "narrative": "📄 RAG", "both": "🔀 XBRL + RAG"}
+            st.caption(f"Query route: **{route_label.get(route, route)}**"
+                       + (" — XBRL facts loaded ✅" if xbrl_facts else
+                          " — ⚠️ No XBRL facts (fetch in Step 4 to enable exact numbers)"))
 
-            with st.expander(f"📎 Sources — {len(response.sources)} chunks used"):
-                for i, sr in enumerate(response.sources):
-                    section = sr.metadata.get("section", "")
-                    section_str = f" | section: `{section}`" if section else ""
-                    st.markdown(
-                        f"**[Source {i+1}]** `{sr.source}` | similarity: `{sr.relevance_score:.3f}`"
-                        f" | chunk: `{sr.metadata.get('chunk_id','?')}`{section_str}"
+            use_xbrl = route in ("structured", "both") and bool(xbrl_facts)
+
+            if use_xbrl:
+                # Dual-store path: retrieve() combines XBRL facts + RAG chunks, then GPT answers
+                with st.spinner(f"Retrieving via {route_label[route]}..."):
+                    context = retrieve(
+                        question=final_q,
+                        ticker=q_ticker,
+                        fiscal_year=q_fiscal_year,
+                        form_type="10-K",
+                        quarter=None,
+                        rag=rag,
+                        xbrl_facts=xbrl_facts,
                     )
-                    st.text(sr.content[:400] + "..." if len(sr.content) > 400 else sr.content)
-                    st.divider()
+                if not context:
+                    st.warning("No data found for this question. Check that XBRL facts are loaded (Step 4) and documents are indexed (Step 2).")
+                else:
+                    with st.spinner("Generating answer with GPT-4..."):
+                        answer = rag.answer_with_context(final_q, context)
+                    st.markdown("### 💡 Answer")
+                    st.markdown(answer)
+                    source_note = "XBRL structured data" + (" + RAG document chunks" if route == "both" else "")
+                    st.caption(f"Answer grounded in: {source_note}")
+                    with st.expander("📊 Context sent to GPT-4"):
+                        st.text(context[:3000] + ("…" if len(context) > 3000 else ""))
+                    st.session_state.qa_history.append({
+                        "question": final_q, "answer": answer,
+                        "confidence": "High", "sources_count": 0,
+                        "timestamp": datetime.now().isoformat()
+                    })
+            else:
+                # Pure narrative RAG path — unchanged from notebook interface
+                with st.spinner("Running RAGSystem.answer_question()..."):
+                    # k=10: financial docs reference the same figure in multiple sections
+                    response: RAGResponse = rag.answer_question(final_q, k=10)
 
-            with st.expander("🔍 Debug — retrieval scores"):
-                st.caption("Chunks passing the 0.55 similarity floor, ranked by score. Use this to diagnose misses.")
-                for sr in response.sources:
-                    section = sr.metadata.get("section", "—")
-                    bar = "█" * int(sr.relevance_score * 20)
-                    st.markdown(
-                        f"`{sr.relevance_score:.3f}` {bar}  \n"
-                        f"**Section:** {section}  \n"
-                        f"**Preview:** {sr.content[:200].strip()}…"
-                    )
-                    st.divider()
+                st.markdown("### 💡 Answer")
+                st.markdown(response.answer)
+                conf_colors = {"High": "green", "Medium": "orange", "Low": "red"}
+                c = conf_colors.get(response.confidence, "gray")
+                st.markdown(f"**Confidence:** :{c}[{response.confidence}]")
 
-            st.session_state.qa_history.append({
-                "question": response.question,
-                "answer": response.answer,
-                "confidence": response.confidence,
-                "sources_count": len(response.sources),
-                "timestamp": datetime.now().isoformat()
-            })
+                with st.expander(f"📎 Sources — {len(response.sources)} chunks used"):
+                    for i, sr in enumerate(response.sources):
+                        section = sr.metadata.get("section", "")
+                        section_str = f" | section: `{section}`" if section else ""
+                        st.markdown(
+                            f"**[Source {i+1}]** `{sr.source}` | similarity: `{sr.relevance_score:.3f}`"
+                            f" | chunk: `{sr.metadata.get('chunk_id','?')}`{section_str}"
+                        )
+                        st.text(sr.content[:400] + "..." if len(sr.content) > 400 else sr.content)
+                        st.divider()
+
+                with st.expander("🔍 Debug — retrieval scores"):
+                    st.caption("Chunks passing the 0.55 similarity floor, ranked by score. Use this to diagnose misses.")
+                    for sr in response.sources:
+                        section = sr.metadata.get("section", "—")
+                        bar = "█" * int(sr.relevance_score * 20)
+                        st.markdown(
+                            f"`{sr.relevance_score:.3f}` {bar}  \n"
+                            f"**Section:** {section}  \n"
+                            f"**Preview:** {sr.content[:200].strip()}…"
+                        )
+                        st.divider()
+
+                st.session_state.qa_history.append({
+                    "question": response.question, "answer": response.answer,
+                    "confidence": response.confidence,
+                    "sources_count": len(response.sources),
+                    "timestamp": datetime.now().isoformat()
+                })
 
         if st.session_state.qa_history:
             n = len(st.session_state.qa_history)
