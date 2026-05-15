@@ -1676,6 +1676,27 @@ def retrieve(question: str, ticker: str, fiscal_year: str, form_type: str,
     return "\n\n---\n\n".join(parts) if parts else ""
 
 
+_INSUFFICIENT_PATTERNS = [
+    "i don't have enough information",
+    "don't have enough information",
+    "not enough information to answer",
+    "cannot calculate",
+    "unable to calculate",
+    "unable to answer",
+    "not provided in",
+    "not in the context",
+    "not in the data",
+    "i don't have the data",
+    "no information",
+    "no data",
+]
+
+def _gpt_refused(answer: str) -> bool:
+    """Return True when GPT signalled it couldn't answer due to missing data."""
+    a = answer.lower()
+    return any(p in a for p in _INSUFFICIENT_PATTERNS)
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # STREAMLIT UI
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2050,62 +2071,72 @@ RAG retrieves the most relevant passages from uploaded documents and grounds the
                         xbrl_facts=xbrl_facts,
                     )
                 if not context:
-                    st.warning("No data found for this question. Check that XBRL facts are loaded (Step 4) and documents are indexed (Step 2).")
+                    st.error("❌ Not enough data to answer this question. Make sure XBRL facts are loaded (Step 4) and documents are indexed (Step 2).")
                 else:
                     with st.spinner("Generating answer with GPT-4..."):
                         answer = rag.answer_with_context(final_q, context)
-                    st.markdown("### 💡 Answer")
-                    st.markdown(answer)
-                    source_note = "XBRL structured data" + (" + RAG document chunks" if route == "both" else "")
-                    st.caption(f"Answer grounded in: {source_note}")
-                    with st.expander("📊 Context sent to GPT-4"):
-                        st.text(context[:3000] + ("…" if len(context) > 3000 else ""))
-                    st.session_state.qa_history.append({
-                        "question": final_q, "answer": answer,
-                        "confidence": "High", "sources_count": 0,
-                        "timestamp": datetime.now().isoformat()
-                    })
+                    if _gpt_refused(answer):
+                        st.error(f"❌ Insufficient data: {answer}")
+                    else:
+                        st.markdown("### 💡 Answer")
+                        st.markdown(answer)
+                        source_note = "XBRL structured data" + (" + RAG document chunks" if route == "both" else "")
+                        st.caption(f"Answer grounded in: {source_note}")
+                        with st.expander("📊 Context sent to GPT-4"):
+                            st.text(context[:3000] + ("…" if len(context) > 3000 else ""))
+                        st.session_state.qa_history.append({
+                            "question": final_q, "answer": answer,
+                            "confidence": "High", "sources_count": 0,
+                            "timestamp": datetime.now().isoformat()
+                        })
             else:
                 # Pure narrative RAG path — unchanged from notebook interface
                 with st.spinner("Running RAGSystem.answer_question()..."):
                     # k=10: financial docs reference the same figure in multiple sections
                     response: RAGResponse = rag.answer_question(final_q, k=10)
 
-                st.markdown("### 💡 Answer")
-                st.markdown(response.answer)
-                conf_colors = {"High": "green", "Medium": "orange", "Low": "red"}
-                c = conf_colors.get(response.confidence, "gray")
-                st.markdown(f"**Confidence:** :{c}[{response.confidence}]")
+                if not response.sources:
+                    st.error("❌ No relevant chunks found in the index. Load and index more documents, or rephrase your question.")
+                elif _gpt_refused(response.answer):
+                    st.error(f"❌ Insufficient data: {response.answer}")
+                else:
+                    st.markdown("### 💡 Answer")
+                    st.markdown(response.answer)
+                    conf_colors = {"High": "green", "Medium": "orange", "Low": "red"}
+                    c = conf_colors.get(response.confidence, "gray")
+                    st.markdown(f"**Confidence:** :{c}[{response.confidence}]")
+                    if response.confidence == "Low":
+                        st.warning("⚠️ Low confidence — retrieved chunks may not fully cover this question.")
 
-                with st.expander(f"📎 Sources — {len(response.sources)} chunks used"):
-                    for i, sr in enumerate(response.sources):
-                        section = sr.metadata.get("section", "")
-                        section_str = f" | section: `{section}`" if section else ""
-                        st.markdown(
-                            f"**[Source {i+1}]** `{sr.source}` | similarity: `{sr.relevance_score:.3f}`"
-                            f" | chunk: `{sr.metadata.get('chunk_id','?')}`{section_str}"
-                        )
-                        st.text(sr.content[:400] + "..." if len(sr.content) > 400 else sr.content)
-                        st.divider()
+                    with st.expander(f"📎 Sources — {len(response.sources)} chunks used"):
+                        for i, sr in enumerate(response.sources):
+                            section = sr.metadata.get("section", "")
+                            section_str = f" | section: `{section}`" if section else ""
+                            st.markdown(
+                                f"**[Source {i+1}]** `{sr.source}` | similarity: `{sr.relevance_score:.3f}`"
+                                f" | chunk: `{sr.metadata.get('chunk_id','?')}`{section_str}"
+                            )
+                            st.text(sr.content[:400] + "..." if len(sr.content) > 400 else sr.content)
+                            st.divider()
 
-                with st.expander("🔍 Debug — retrieval scores"):
-                    st.caption("Chunks passing the 0.55 similarity floor, ranked by score. Use this to diagnose misses.")
-                    for sr in response.sources:
-                        section = sr.metadata.get("section", "—")
-                        bar = "█" * int(sr.relevance_score * 20)
-                        st.markdown(
-                            f"`{sr.relevance_score:.3f}` {bar}  \n"
-                            f"**Section:** {section}  \n"
-                            f"**Preview:** {sr.content[:200].strip()}…"
-                        )
-                        st.divider()
+                    with st.expander("🔍 Debug — retrieval scores"):
+                        st.caption("Chunks passing the 0.55 similarity floor, ranked by score. Use this to diagnose misses.")
+                        for sr in response.sources:
+                            section = sr.metadata.get("section", "—")
+                            bar = "█" * int(sr.relevance_score * 20)
+                            st.markdown(
+                                f"`{sr.relevance_score:.3f}` {bar}  \n"
+                                f"**Section:** {section}  \n"
+                                f"**Preview:** {sr.content[:200].strip()}…"
+                            )
+                            st.divider()
 
-                st.session_state.qa_history.append({
-                    "question": response.question, "answer": response.answer,
-                    "confidence": response.confidence,
-                    "sources_count": len(response.sources),
-                    "timestamp": datetime.now().isoformat()
-                })
+                    st.session_state.qa_history.append({
+                        "question": response.question, "answer": response.answer,
+                        "confidence": response.confidence,
+                        "sources_count": len(response.sources),
+                        "timestamp": datetime.now().isoformat()
+                    })
 
         if st.session_state.qa_history:
             n = len(st.session_state.qa_history)
