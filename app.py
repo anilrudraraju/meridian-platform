@@ -786,7 +786,7 @@ class RAGSystem:
     Confidence: High/Medium/Low based on avg cosine similarity (unchanged)
     """
 
-    def __init__(self, model: str = "gpt-4"):
+    def __init__(self, model: str = "gpt-4o"):
         import openai, chromadb
         self.model = model
         self._openai = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
@@ -2179,7 +2179,7 @@ RAG retrieves the most relevant passages from uploaded documents and grounds the
     # Always instantiate RAGSystem so we can read the persisted count
     if st.session_state.rag_system is None:
         try:
-            st.session_state.rag_system = RAGSystem(model="gpt-4")
+            st.session_state.rag_system = RAGSystem(model="gpt-4o")
         except Exception as e:
             st.error(f"ChromaDB init error: {e}")
 
@@ -2217,7 +2217,7 @@ RAG retrieves the most relevant passages from uploaded documents and grounds the
     if rag_ready and st.session_state.rag_system.count() > 0:
         st.divider()
         st.subheader("Step 3: Ask a Question")
-        st.caption("Quantitative questions (revenue, EPS) use XBRL exact numbers. Narrative questions use the indexed document chunks.")
+        st.caption("Ask anything — no ticker needed. Adding a ticker enables exact XBRL numbers for quantitative questions (revenue, EPS, net income).")
 
         example_qs = [
             "What are the main risk factors?",
@@ -2269,7 +2269,7 @@ RAG retrieves the most relevant passages from uploaded documents and grounds the
             route = route_query(final_q)
             route_label = {"structured": "🔢 XBRL", "narrative": "📄 RAG", "both": "🔀 XBRL + RAG"}
             xbrl_status = " — XBRL facts loaded ✅" if xbrl_facts else (
-                f" — ⚠️ No XBRL facts for {q_ticker}" if q_ticker else " — enter a ticker to enable exact numbers"
+                f" — ⚠️ No XBRL facts for {q_ticker} (will use RAG)" if q_ticker else " — using document chunks (add ticker above for exact numbers)"
             )
             st.caption(f"Query route: **{route_label.get(route, route)}**{xbrl_status}")
 
