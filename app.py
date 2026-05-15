@@ -1685,8 +1685,7 @@ def retrieve(question: str, ticker: str, fiscal_year: str, form_type: str,
     if store in ("structured", "both") and xbrl_facts:
         metric_lines = []
         for label, entries in xbrl_facts.items():
-            form_filter = "10-K" if form_type == "10-K" else "10-Q"
-            period_entries = [e for e in entries if e.get("form") == form_filter]
+            period_entries = [e for e in entries if e.get("form") == form_type] if form_type else entries
             if fiscal_year:
                 period_entries = [e for e in period_entries
                                   if e.get("period_end", "").startswith(fiscal_year)]
@@ -1750,6 +1749,22 @@ def _gpt_refused(answer: str) -> bool:
     """Return True when GPT signalled it couldn't answer due to missing data."""
     a = answer.lower()
     return any(p in a for p in _INSUFFICIENT_PATTERNS)
+
+
+def _auto_fetch_xbrl(ticker: str) -> None:
+    """Fetch XBRL facts for ticker and cache per-ticker in session state."""
+    if not ticker:
+        return
+    by_ticker = st.session_state.setdefault("xbrl_by_ticker", {})
+    if ticker in by_ticker:
+        return  # already cached for this ticker
+    with st.spinner(f"Auto-fetching XBRL financial facts for {ticker}..."):
+        ok, facts, _ = fetch_xbrl_facts(ticker)
+    if ok and facts:
+        by_ticker[ticker] = facts
+        st.caption(f"📊 XBRL facts loaded for **{ticker}** — exact numbers available for Q&A")
+    else:
+        st.caption(f"📊 XBRL not available for {ticker} — quantitative questions will use RAG")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1932,21 +1947,27 @@ RAG retrieves the most relevant passages from uploaded documents and grounds the
 
     processor = DocumentProcessor(chunk_size=2000, chunk_overlap=400)
 
-    # Step 1
-    st.subheader("Step 1: Load Documents")
-    st.caption("Need 3+ financial documents for assignment")
-    s1, s2 = st.columns(2)
+    # ── Step 1: Load a Financial Document ────────────────────────────────────
+    st.subheader("Step 1: Load a Financial Document")
+    st.caption("Choose how to get the filing. XBRL financial facts are fetched automatically in the background.")
 
-    with s1:
-        st.markdown("#### 🏛️ Auto-Fetch from SEC EDGAR")
-        edgar_ticker = st.text_input("Ticker", placeholder="AAPL").upper().strip()
-        form_type = st.selectbox("Form", ["10-K", "10-Q", "Form 10", "8-K"])
-        edgar_fiscal_year = st.text_input("Fiscal Year", placeholder="2024", max_chars=4,
-                                          help="4-digit fiscal year (e.g. 2024). Auto-detected if blank.")
-        if st.button("📥 Fetch from EDGAR", disabled=not edgar_ticker):
+    source_method = st.radio(
+        "Data source",
+        ["🏛️ Auto-Fetch from SEC EDGAR", "📁 Upload PDF or TXT", "🔗 Paste HTML URL"],
+        horizontal=True, label_visibility="collapsed",
+    )
+
+    if source_method == "🏛️ Auto-Fetch from SEC EDGAR":
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            edgar_ticker = st.text_input("Ticker", placeholder="AAPL").upper().strip()
+        with c2:
+            form_type = st.selectbox("Form type", ["10-K", "10-Q", "Form 10", "8-K"])
+        with c3:
+            edgar_fiscal_year = st.text_input("Fiscal year", placeholder="2024 (blank = latest)", max_chars=4)
+        if st.button("📥 Fetch from EDGAR", disabled=not edgar_ticker, type="primary"):
             fy_input = edgar_fiscal_year.strip()
-            with st.spinner(f"Fetching {form_type} for {edgar_ticker}" +
-                            (f" ({fy_input})" if fy_input else "") + "..."):
+            with st.spinner(f"Fetching {form_type} for {edgar_ticker}" + (f" ({fy_input})" if fy_input else "") + "..."):
                 ok, text, desc, edgar_cik, edgar_company = fetch_edgar_filing(
                     edgar_ticker, form_type, target_year=fy_input or None
                 )
@@ -1954,67 +1975,54 @@ RAG retrieves the most relevant passages from uploaded documents and grounds the
                 if any(d["source"] == desc for d in st.session_state.loaded_docs):
                     st.warning(f"⚠️ Already loaded: {desc}")
                 else:
-                    fy = fy_input or desc[-5:-1]  # fallback: year from "(YYYY-MM-DD)"
+                    fy = fy_input or desc[-5:-1]
                     with st.spinner("Chunking with section-aware pipeline..."):
                         chunks = processor.process_filing(
-                            source=desc,
-                            company=edgar_company,
-                            ticker=edgar_ticker,
-                            cik=edgar_cik,
-                            form_type=form_type,
-                            fiscal_year=fy,
-                            text=text,
-                            text_source="edgar_fetch",
+                            source=desc, company=edgar_company, ticker=edgar_ticker,
+                            cik=edgar_cik, form_type=form_type, fiscal_year=fy,
+                            text=text, text_source="edgar_fetch",
                         )
                     st.session_state.all_chunks.extend(chunks)
                     st.session_state.loaded_docs.append({"source": desc, "chunks": len(chunks), "chars": len(text)})
                     st.session_state.rag_system = None
-                    st.success(f"✅ {desc} — {len(chunks)} chunks")
+                    st.success(f"✅ {desc} — {len(chunks)} chunks ready to index")
+                    _auto_fetch_xbrl(edgar_ticker)
             else:
                 st.error(desc)
-                st.info("Tip: Paste the SEC EDGAR HTML URL below, or download the PDF and upload it.")
+                st.info("Tip: Switch to 'Paste HTML URL' and paste the filing link from SEC.gov directly.")
 
-    with s2:
-        st.markdown("#### 📁 Upload PDF or TXT")
-        uploaded = st.file_uploader("Upload documents", type=["pdf", "txt"], accept_multiple_files=True)
-        col_ft, col_fy = st.columns(2)
-        with col_ft:
-            upload_form_type = st.selectbox("Form type", ["10-K", "10-Q", "Form 10", "8-K"],
-                                            key="upload_form_type")
-        with col_fy:
-            upload_fiscal_year = st.text_input("Fiscal year", placeholder="2024", max_chars=4,
-                                               key="upload_fiscal_year",
-                                               help="Auto-detected from filename if blank (e.g. AAPL_10K_2024.pdf).")
-        upload_ticker = st.text_input("Ticker (optional)", placeholder="AAPL", key="upload_ticker",
-                                      help="Used for XBRL availability check — leave blank if unknown.")
+    elif source_method == "📁 Upload PDF or TXT":
+        uploaded = st.file_uploader("Upload filing(s)", type=["pdf", "txt"], accept_multiple_files=True)
+        uc1, uc2, uc3 = st.columns(3)
+        with uc1:
+            upload_ticker = st.text_input("Ticker", placeholder="AAPL", key="upload_ticker").upper().strip()
+        with uc2:
+            upload_form_type = st.selectbox("Form type", ["10-K", "10-Q", "Form 10", "8-K"], key="upload_form_type")
+        with uc3:
+            upload_fiscal_year = st.text_input("Fiscal year", placeholder="2024 (auto-detected)", max_chars=4,
+                                               key="upload_fiscal_year")
         if uploaded:
             for f in uploaded:
                 if not any(d["source"] == f.name for d in st.session_state.loaded_docs):
                     fname_meta = _parse_filename_metadata(f.name)
                     ft   = upload_form_type or fname_meta.get("form_type", "10-K")
                     fy   = upload_fiscal_year.strip() or fname_meta.get("fiscal_year", "")
-                    tick = upload_ticker.strip().upper() or fname_meta.get("ticker", "")
-                    with st.spinner(f"Processing {f.name} with section-aware pipeline..."):
+                    tick = upload_ticker or fname_meta.get("ticker", "")
+                    with st.spinner(f"Processing {f.name}..."):
                         raw = f.read()
-                        if f.name.endswith(".pdf"):
-                            chunks = processor.process_filing(
-                                source=f.name, company="", ticker=tick,
-                                cik="", form_type=ft, fiscal_year=fy,
-                                pdf_bytes=raw,
-                            )
-                        else:
-                            # TXT files: use legacy path (no structured section headers expected)
-                            chunks = processor.load_from_txt_bytes(raw, f.name)
+                        chunks = processor.process_filing(
+                            source=f.name, company="", ticker=tick,
+                            cik="", form_type=ft, fiscal_year=fy,
+                            pdf_bytes=raw if f.name.endswith(".pdf") else None,
+                            text=raw.decode("utf-8", errors="ignore") if f.name.endswith(".txt") else None,
+                        )
                     st.session_state.all_chunks.extend(chunks)
                     st.session_state.loaded_docs.append({"source": f.name, "chunks": len(chunks), "chars": sum(len(c["page_content"]) for c in chunks)})
                     st.session_state.rag_system = None
-                    st.success(f"✅ {f.name} — {len(chunks)} chunks")
+                    st.success(f"✅ {f.name} — {len(chunks)} chunks ready to index")
+                    _auto_fetch_xbrl(tick)
 
-    with st.expander("🔗 Paste HTML URL (use when auto-fetch fails)"):
-        st.caption(
-            "Paste the URL of an HTML filing from SEC EDGAR or a company investor relations page. "
-            "Must be HTTPS."
-        )
+    else:  # Paste HTML URL
         html_url_input = st.text_input(
             "HTML filing URL",
             placeholder="https://www.sec.gov/Archives/edgar/data/.../goog-20231231.htm",
@@ -2029,68 +2037,57 @@ RAG retrieves the most relevant passages from uploaded documents and grounds the
             url_fiscal_year = st.text_input("Fiscal year", placeholder="2023", max_chars=4, key="url_fiscal_year")
         with hc4:
             url_company = st.text_input("Company name", placeholder="Alphabet Inc.", key="url_company")
-
-        if st.button("📥 Fetch HTML", disabled=not html_url_input, key="fetch_html_url"):
+        if st.button("📥 Fetch HTML", disabled=not html_url_input, key="fetch_html_url", type="primary"):
             url = html_url_input.strip()
             if not url.startswith("https://"):
                 st.error("❌ URL must start with https://")
             else:
                 with st.spinner("Fetching HTML filing..."):
                     try:
-                        rh = requests.get(
-                            url,
-                            headers={"User-Agent": "MeridianPlatform student@meridian.edu"},
-                            timeout=30,
-                        )
+                        rh = requests.get(url, headers={"User-Agent": "MeridianPlatform student@meridian.edu"}, timeout=30)
                         if rh.status_code != 200:
                             st.error(f"❌ HTTP {rh.status_code} — check the URL and try again.")
                         else:
-                            url_filename = url.rstrip("/").split("/")[-1]
-                            fname_meta = _parse_filename_metadata(url_filename)
-                            tick = url_ticker or fname_meta.get("ticker", "")
-                            ft = url_form_type
-                            fy = url_fiscal_year.strip() or fname_meta.get("fiscal_year", "")
+                            fname_meta = _parse_filename_metadata(url.rstrip("/").split("/")[-1])
+                            tick    = url_ticker or fname_meta.get("ticker", "")
+                            ft      = url_form_type
+                            fy      = url_fiscal_year.strip() or fname_meta.get("fiscal_year", "")
                             company = url_company.strip() or tick or "Unknown"
-                            desc = f"{company} {ft} ({fy or 'unknown year'}) [HTML]"
-
+                            desc    = f"{company} {ft} ({fy or 'unknown year'}) [HTML]"
                             if any(d["source"] == url for d in st.session_state.loaded_docs):
                                 st.warning(f"⚠️ Already loaded: {desc}")
                             else:
                                 text = _strip_html(rh.text)
                                 char_cap = 3_000_000
                                 if len(text) > char_cap:
-                                    st.warning(f"Document truncated to {char_cap:,} chars for processing.")
+                                    st.warning(f"Document truncated to {char_cap:,} chars.")
                                 text = text[:char_cap]
                                 with st.spinner("Chunking with section-aware pipeline..."):
                                     chunks = processor.process_filing(
-                                        source=url,
-                                        company=company,
-                                        ticker=tick,
-                                        cik="",
-                                        form_type=ft,
-                                        fiscal_year=fy,
-                                        text=text,
-                                        text_source="html_url",
+                                        source=url, company=company, ticker=tick,
+                                        cik="", form_type=ft, fiscal_year=fy,
+                                        text=text, text_source="html_url",
                                     )
                                 st.session_state.all_chunks.extend(chunks)
-                                st.session_state.loaded_docs.append({
-                                    "source": url, "chunks": len(chunks), "chars": len(text)
-                                })
+                                st.session_state.loaded_docs.append({"source": url, "chunks": len(chunks), "chars": len(text)})
                                 st.session_state.rag_system = None
-                                st.success(f"✅ {desc} — {len(chunks)} chunks")
+                                st.success(f"✅ {desc} — {len(chunks)} chunks ready to index")
+                                _auto_fetch_xbrl(tick)
                     except Exception as e:
                         st.error(f"❌ Fetch error: {e}")
 
+    # Loaded docs summary
     if st.session_state.loaded_docs:
-        st.markdown(f"**{len(st.session_state.loaded_docs)} docs loaded · {len(st.session_state.all_chunks)} total chunks**")
+        st.markdown(f"**{len(st.session_state.loaded_docs)} doc(s) loaded · {len(st.session_state.all_chunks)} total chunks**")
         for d in st.session_state.loaded_docs:
             st.markdown(f"• `{d['source']}` — {d['chunks']} chunks, {d['chars']:,} chars")
         if len(st.session_state.loaded_docs) < 3:
             st.warning(f"Load {3 - len(st.session_state.loaded_docs)} more document(s) to meet assignment requirement.")
 
-    # Step 2
+    # ── Step 2: Chunk & Index ─────────────────────────────────────────────────
+    st.divider()
     st.subheader("Step 2: Build Vector Index")
-    st.caption("ChromaDB PersistentClient · text-embedding-ada-002 (1536 dims) · cosine similarity · persists across page refreshes")
+    st.caption("Chunking is done automatically when documents are loaded (Step 1). Click below to embed and index into ChromaDB.")
 
     # Always instantiate RAGSystem so we can read the persisted count
     if st.session_state.rag_system is None:
@@ -2129,10 +2126,11 @@ RAG retrieves the most relevant passages from uploaded documents and grounds the
                 new_count = st.session_state.rag_system.count()
                 st.success(f"✅ ChromaDB now has {new_count:,} chunks · embeddings written to disk")
 
-    # Step 3 — show Q&A as long as ChromaDB has any chunks (even from a previous session)
+    # ── Step 3: Q&A ──────────────────────────────────────────────────────────
     if rag_ready and st.session_state.rag_system.count() > 0:
-        st.subheader("Step 3: Ask Questions")
-        st.caption("RAGSystem.answer_question() → RAGResponse with SearchResult citations")
+        st.divider()
+        st.subheader("Step 3: Ask a Question")
+        st.caption("Quantitative questions (revenue, EPS) use XBRL exact numbers. Narrative questions use the indexed document chunks.")
 
         example_qs = [
             "What are the main risk factors?",
@@ -2148,18 +2146,23 @@ RAG retrieves the most relevant passages from uploaded documents and grounds the
         ]
 
         # Optional filters — used for ChromaDB pre-filtering and XBRL routing
-        filt1, filt2 = st.columns(2)
+        filt1, filt2, filt3 = st.columns(3)
         with filt1:
             q_ticker = st.text_input(
                 "Ticker filter", placeholder="e.g. GOOGL", key="q3_ticker",
-                value=st.session_state.get("xbrl_ticker_input", ""),
-                help="Narrows search to this company. Also enables XBRL routing if Step 4 facts are loaded."
+                help="Narrows search to this company. XBRL facts are auto-loaded per ticker."
             ).upper().strip()
         with filt2:
             q_fiscal_year = st.text_input(
                 "Year filter", placeholder="e.g. 2024", key="q3_fiscal_year",
                 help="Narrows search to this fiscal year."
             ).strip()
+        with filt3:
+            q_form_type_sel = st.selectbox(
+                "Form type", ["Any", "10-K", "10-Q", "Form 10", "8-K"], key="q3_form_type",
+                help="Narrows search to a specific filing type. 'Any' searches across all loaded documents."
+            )
+            q_form_type = None if q_form_type_sel == "Any" else q_form_type_sel
 
         q1, q2 = st.columns([3, 1])
         with q1:
@@ -2175,12 +2178,13 @@ RAG retrieves the most relevant passages from uploaded documents and grounds the
                 st.error("RAG system is not initialized. Please index documents first.")
                 st.stop()
 
-            xbrl_facts = st.session_state.get("xbrl_facts", {})
+            xbrl_facts = st.session_state.get("xbrl_by_ticker", {}).get(q_ticker, {})
             route = route_query(final_q)
             route_label = {"structured": "🔢 XBRL", "narrative": "📄 RAG", "both": "🔀 XBRL + RAG"}
-            st.caption(f"Query route: **{route_label.get(route, route)}**"
-                       + (" — XBRL facts loaded ✅" if xbrl_facts else
-                          " — ⚠️ No XBRL facts (fetch in Step 4 to enable exact numbers)"))
+            xbrl_status = " — XBRL facts loaded ✅" if xbrl_facts else (
+                f" — ⚠️ No XBRL facts for {q_ticker}" if q_ticker else " — enter a ticker to enable exact numbers"
+            )
+            st.caption(f"Query route: **{route_label.get(route, route)}**{xbrl_status}")
 
             use_xbrl = route in ("structured", "both") and bool(xbrl_facts)
 
@@ -2191,13 +2195,13 @@ RAG retrieves the most relevant passages from uploaded documents and grounds the
                         question=final_q,
                         ticker=q_ticker,
                         fiscal_year=q_fiscal_year,
-                        form_type="10-K",
+                        form_type=q_form_type,
                         quarter=None,
                         rag=rag,
                         xbrl_facts=xbrl_facts,
                     )
                 if not context:
-                    st.error("❌ Not enough data to answer this question. Make sure XBRL facts are loaded (Step 4) and documents are indexed (Step 2).")
+                    st.error("❌ No data found. Make sure documents are indexed (Step 2) and the ticker/year filters match your loaded filing.")
                 else:
                     with st.spinner("Generating answer with GPT-4..."):
                         answer = rag.answer_with_context(final_q, context)
@@ -2279,76 +2283,48 @@ RAG retrieves the most relevant passages from uploaded documents and grounds the
             )
 
 
-# ─── Layer 3 continued — Step 4: XBRL Financial Facts ───────────────────────
-# Separate if block (same active_layer) so it stays at top indentation level.
-# Answers quantitative questions directly from structured SEC data — no RAG.
+# ─── Layer 3 continued — XBRL facts display (auto-populated) ─────────────────
 if st.session_state.active_layer == "rag":
     import pandas as pd
 
-    st.divider()
-    st.subheader("Step 4: Financial Facts (XBRL)")
-    st.caption(
-        "Exact numbers from SEC XBRL — no vector search. "
-        "Use this for: revenue, net income, EPS, assets, cash flow. "
-        "Use Steps 1–3 for: *why* revenue changed, risk factors, management commentary."
-    )
+    xbrl_by_ticker = st.session_state.get("xbrl_by_ticker", {})
+    if xbrl_by_ticker:
+        st.divider()
+        with st.expander(f"📊 XBRL Financial Facts — auto-fetched for: {', '.join(xbrl_by_ticker.keys())}", expanded=False):
+            st.caption("These exact numbers are used automatically when you ask quantitative questions (revenue, EPS, net income, etc.).")
 
-    xf1, xf2 = st.columns([2, 1])
-    with xf1:
-        xbrl_ticker = st.text_input("Ticker", placeholder="AAPL", key="xbrl_ticker_input").upper().strip()
-    with xf2:
-        xbrl_filter = st.selectbox("Period", ["Both", "Annual (10-K)", "Quarterly (10-Q)"], key="xbrl_filter")
+            xbrl_ticker_view = st.selectbox("View facts for", list(xbrl_by_ticker.keys()), key="xbrl_ticker_view")
+            xbrl_filter = st.selectbox("Period filter", ["Both", "Annual (10-K)", "Quarterly (10-Q)"], key="xbrl_filter")
+            form_filter = {"Annual (10-K)": "10-K", "Quarterly (10-Q)": "10-Q"}.get(xbrl_filter)
 
-    if st.button("📊 Fetch XBRL Facts", disabled=not xbrl_ticker):
-        with st.spinner(f"Fetching XBRL facts for {xbrl_ticker} from SEC..."):
-            ok, facts, desc = fetch_xbrl_facts(xbrl_ticker)
-        if not ok:
-            st.error(desc)
-        else:
-            st.session_state["xbrl_facts"] = facts
-            st.session_state["xbrl_desc"]  = desc
+            facts = xbrl_by_ticker[xbrl_ticker_view]
+            rows = []
+            for metric, entries in facts.items():
+                fy = next((e for e in entries if e["form"] == "10-K"), None)
+                qt = next((e for e in entries if e["form"] == "10-Q"), None)
+                rows.append({
+                    "Metric":         metric,
+                    "Latest Annual":  _fmt_xbrl(fy["value"], metric) if fy else "—",
+                    "FY Period":      fy["period_end"][:7] if fy else "—",
+                    "Latest Quarter": _fmt_xbrl(qt["value"], metric) if qt else "—",
+                    "Q Period":       qt["period_end"][:7] if qt else "—",
+                })
+            st.dataframe(pd.DataFrame(rows).set_index("Metric"), use_container_width=True)
 
-    if st.session_state.get("xbrl_facts"):
-        facts = st.session_state["xbrl_facts"]
-        desc  = st.session_state.get("xbrl_desc", "")
-        form_filter = {"Annual (10-K)": "10-K", "Quarterly (10-Q)": "10-Q"}.get(xbrl_filter)
-
-        st.success(f"✅ {desc} — {len(facts)} metrics")
-
-        # Summary table: latest annual + latest quarterly value side-by-side
-        rows = []
-        for metric, entries in facts.items():
-            fy = next((e for e in entries if e["form"] == "10-K"), None)
-            qt = next((e for e in entries if e["form"] == "10-Q"), None)
-            rows.append({
-                "Metric":         metric,
-                "Latest Annual":  _fmt_xbrl(fy["value"], metric) if fy else "—",
-                "FY Period":      fy["period_end"][:7] if fy else "—",
-                "Latest Quarter": _fmt_xbrl(qt["value"], metric) if qt else "—",
-                "Q Period":       qt["period_end"][:7] if qt else "—",
-            })
-        st.dataframe(pd.DataFrame(rows).set_index("Metric"), use_container_width=True)
-
-        # Drill-down: full history for a selected metric with a bar chart
-        selected = st.selectbox("Drill into history", list(facts.keys()), key="xbrl_drill")
-        if selected:
-            entries = facts[selected]
-            if form_filter:
-                entries = [e for e in entries if e["form"] == form_filter]
-            df_hist = pd.DataFrame([
-                {
-                    "Period End":   e["period_end"],
-                    "Period Start": e["period_start"],
-                    "Value":        _fmt_xbrl(e["value"], selected),
-                    "_raw":         e["value"],
-                    "Form":         e["form"],
-                    "Filed":        e["filed"],
-                }
-                for e in entries
-            ])
-            st.dataframe(df_hist.drop(columns=["_raw"]), use_container_width=True)
-            if not df_hist.empty:
-                st.bar_chart(df_hist.set_index("Period End")["_raw"])
+            selected = st.selectbox("Drill into history", list(facts.keys()), key="xbrl_drill")
+            if selected:
+                entries = facts[selected]
+                if form_filter:
+                    entries = [e for e in entries if e["form"] == form_filter]
+                df_hist = pd.DataFrame([
+                    {"Period End": e["period_end"], "Period Start": e["period_start"],
+                     "Value": _fmt_xbrl(e["value"], selected), "_raw": e["value"],
+                     "Form": e["form"], "Filed": e["filed"]}
+                    for e in entries
+                ])
+                st.dataframe(df_hist.drop(columns=["_raw"]), use_container_width=True)
+                if not df_hist.empty:
+                    st.bar_chart(df_hist.set_index("Period End")["_raw"])
 
 
 # ─── Layer 1 — Guardrails ────────────────────────────────────────────────────
