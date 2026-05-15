@@ -896,7 +896,7 @@ class RAGSystem:
             )
         progress.empty()
 
-    def search(self, query: str, k: int = 5, where: Optional[dict] = None) -> List[SearchResult]:
+    def search(self, query: str, k: int = 20, where: Optional[dict] = None) -> List[SearchResult]:
         """
         Semantic search via ChromaDB.
         Returns List[SearchResult] — identical interface to week3_capstone.ipynb.
@@ -932,14 +932,14 @@ class RAGSystem:
             ))
         return search_results
 
-    def answer_question(self, question: str, k: int = 5) -> RAGResponse:
+    def answer_question(self, question: str, k: int = 20) -> RAGResponse:
         """
         RAG Q&A — returns RAGResponse matching week3_capstone.ipynb exactly.
         Confidence: High (>0.80) / Medium (>0.70) / Low based on avg similarity.
         """
         results = self.search(question, k=k)
         # Drop chunks that are too dissimilar to be useful — they add noise to the context
-        results = [r for r in results if r.relevance_score >= 0.55]
+        results = [r for r in results if r.relevance_score >= 0.50]
         if not results:
             return RAGResponse(
                 question=question,
@@ -1718,8 +1718,8 @@ def retrieve(question: str, ticker: str, fiscal_year: str, form_type: str,
             "quarter":     quarter,
             "section":     section_hint,
         })
-        results = rag.search(question, k=10, where=where)
-        results = [r for r in results if r.relevance_score >= 0.55]
+        results = rag.search(question, k=20, where=where)
+        results = [r for r in results if r.relevance_score >= 0.50]
         if results:
             narrative = "\n\n".join(
                 f"[Source {i+1} | {r.metadata.get('section','')} "
@@ -2218,8 +2218,8 @@ RAG retrieves the most relevant passages from uploaded documents and grounds the
             else:
                 # Pure narrative RAG path — unchanged from notebook interface
                 with st.spinner("Running RAGSystem.answer_question()..."):
-                    # k=10: financial docs reference the same figure in multiple sections
-                    response: RAGResponse = rag.answer_question(final_q, k=10)
+                    # k=20: wide net catches answers spread across multiple sections
+                    response: RAGResponse = rag.answer_question(final_q, k=20)
 
                 if not response.sources:
                     st.error("❌ No relevant chunks found in the index. Load and index more documents, or rephrase your question.")
@@ -2246,7 +2246,7 @@ RAG retrieves the most relevant passages from uploaded documents and grounds the
                             st.divider()
 
                     with st.expander("🔍 Debug — retrieval scores"):
-                        st.caption("Chunks passing the 0.55 similarity floor, ranked by score. Use this to diagnose misses.")
+                        st.caption("Chunks passing the 0.50 similarity floor, ranked by score. Use this to diagnose misses.")
                         for sr in response.sources:
                             section = sr.metadata.get("section", "—")
                             bar = "█" * int(sr.relevance_score * 20)
