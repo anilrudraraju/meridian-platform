@@ -1751,6 +1751,73 @@ def _gpt_refused(answer: str) -> bool:
     return any(p in a for p in _INSUFFICIENT_PATTERNS)
 
 
+def _detect_url_metadata(url: str, html_text: str) -> dict:
+    """
+    Auto-detect ticker, form_type, fiscal_year, company, cik from a filing URL + its HTML.
+    For SEC EDGAR URLs the submissions API gives exact values.
+    For other URLs we scan the first 5,000 chars of HTML content.
+    """
+    meta = {"ticker": "", "form_type": "", "fiscal_year": "", "company": "", "cik": ""}
+    hdrs = {"User-Agent": "MeridianPlatform student@meridian.edu"}
+
+    # ── EDGAR URL: /Archives/edgar/data/{cik}/{18-digit-accno}/ ──────────────
+    edgar_match = re.search(r'/Archives/edgar/data/(\d+)/(\d{18})/', url)
+    if edgar_match:
+        cik_int   = edgar_match.group(1)
+        acc_nodash = edgar_match.group(2)
+        cik       = str(cik_int).zfill(10)
+        raw_acc   = f"{acc_nodash[0:10]}-{acc_nodash[10:12]}-{acc_nodash[12:]}"
+        meta["cik"] = cik
+        try:
+            r = requests.get(f"https://data.sec.gov/submissions/CIK{cik}.json", headers=hdrs, timeout=10)
+            sub = r.json()
+            meta["company"] = sub.get("name", "")
+            tickers = sub.get("tickers", [])
+            meta["ticker"] = tickers[0].upper() if tickers else ""
+            filings = sub.get("filings", {}).get("recent", {})
+            accessions = filings.get("accessionNumber", [])
+            if raw_acc in accessions:
+                idx = accessions.index(raw_acc)
+                forms        = filings.get("form", [])
+                report_dates = filings.get("reportDate", [])
+                if idx < len(forms):
+                    meta["form_type"] = forms[idx]
+                if idx < len(report_dates) and report_dates[idx]:
+                    meta["fiscal_year"] = str(report_dates[idx])[:4]
+        except Exception:
+            pass  # fall through to HTML analysis
+
+    # ── HTML content: fill gaps using cover-page text ─────────────────────
+    cover = html_text[:5000]
+    if not meta["form_type"]:
+        cl = cover.lower()
+        if "annual report" in cl or "form 10-k" in cl:
+            meta["form_type"] = "10-K"
+        elif "quarterly report" in cl or "form 10-q" in cl:
+            meta["form_type"] = "10-Q"
+        elif "registration statement" in cl or "form 10 " in cl:
+            meta["form_type"] = "Form 10"
+        else:
+            meta["form_type"] = "10-K"
+
+    if not meta["fiscal_year"]:
+        m = re.search(
+            r'(?:fiscal year|year|period|quarter)\s+ended?\s+\w+\.?\s+\d{1,2},?\s+(\d{4})',
+            cover, re.IGNORECASE
+        )
+        if m:
+            meta["fiscal_year"] = m.group(1)
+
+    # ── Filename fallback ─────────────────────────────────────────────────
+    filename = url.rstrip("/").split("/")[-1]
+    fname_meta = _parse_filename_metadata(filename)
+    if not meta["ticker"]      and fname_meta.get("ticker"):      meta["ticker"]      = fname_meta["ticker"]
+    if not meta["fiscal_year"] and fname_meta.get("fiscal_year"): meta["fiscal_year"] = fname_meta["fiscal_year"]
+    if not meta["form_type"]   and fname_meta.get("form_type"):   meta["form_type"]   = fname_meta["form_type"]
+
+    return meta
+
+
 def _auto_fetch_xbrl(ticker: str) -> None:
     """Fetch XBRL facts for ticker and cache per-ticker in session state."""
     if not ticker:
@@ -1992,22 +2059,31 @@ RAG retrieves the most relevant passages from uploaded documents and grounds the
                 st.info("Tip: Switch to 'Paste HTML URL' and paste the filing link from SEC.gov directly.")
 
     elif source_method == "📁 Upload PDF or TXT":
+        st.caption("Supported: PDF (10-K, 10-Q, Form 10) and plain text files. Metadata is auto-detected from the filename (e.g. `AAPL_10K_2024.pdf`).")
         uploaded = st.file_uploader("Upload filing(s)", type=["pdf", "txt"], accept_multiple_files=True)
-        uc1, uc2, uc3 = st.columns(3)
-        with uc1:
-            upload_ticker = st.text_input("Ticker", placeholder="AAPL", key="upload_ticker").upper().strip()
-        with uc2:
-            upload_form_type = st.selectbox("Form type", ["10-K", "10-Q", "Form 10", "8-K"], key="upload_form_type")
-        with uc3:
-            upload_fiscal_year = st.text_input("Fiscal year", placeholder="2024 (auto-detected)", max_chars=4,
-                                               key="upload_fiscal_year")
         if uploaded:
             for f in uploaded:
                 if not any(d["source"] == f.name for d in st.session_state.loaded_docs):
                     fname_meta = _parse_filename_metadata(f.name)
-                    ft   = upload_form_type or fname_meta.get("form_type", "10-K")
-                    fy   = upload_fiscal_year.strip() or fname_meta.get("fiscal_year", "")
-                    tick = upload_ticker or fname_meta.get("ticker", "")
+                    tick = fname_meta.get("ticker") or ""
+                    ft   = fname_meta.get("form_type") or "10-K"
+                    fy   = fname_meta.get("fiscal_year") or ""
+
+                    # Show override expander only if filename didn't give us everything
+                    missing = [k for k, v in {"Ticker": tick, "Fiscal year": fy}.items() if not v]
+                    if missing:
+                        with st.expander(f"⚠️ Could not detect {', '.join(missing)} from filename — override here"):
+                            oc1, oc2, oc3 = st.columns(3)
+                            with oc1:
+                                tick = st.text_input("Ticker", value=tick, key=f"otick_{f.name}").upper().strip() or tick
+                            with oc2:
+                                ft = st.selectbox("Form type", ["10-K", "10-Q", "Form 10", "8-K"],
+                                                  index=["10-K","10-Q","Form 10","8-K"].index(ft) if ft in ["10-K","10-Q","Form 10","8-K"] else 0,
+                                                  key=f"oft_{f.name}")
+                            with oc3:
+                                fy = st.text_input("Fiscal year", value=fy, max_chars=4, key=f"ofy_{f.name}").strip() or fy
+
+                    st.caption(f"Detected: **{tick or '?'}** · **{ft}** · **{fy or '?'}**")
                     with st.spinner(f"Processing {f.name}..."):
                         raw = f.read()
                         chunks = processor.process_filing(
@@ -2023,41 +2099,52 @@ RAG retrieves the most relevant passages from uploaded documents and grounds the
                     _auto_fetch_xbrl(tick)
 
     else:  # Paste HTML URL
+        st.caption("Paste any HTTPS link to a 10-K, 10-Q, or Form 10 HTML filing from SEC EDGAR or a company investor relations page. Ticker, form type, and year are detected automatically.")
         html_url_input = st.text_input(
             "HTML filing URL",
             placeholder="https://www.sec.gov/Archives/edgar/data/.../goog-20231231.htm",
             key="html_url_input",
         )
-        hc1, hc2, hc3, hc4 = st.columns(4)
-        with hc1:
-            url_ticker = st.text_input("Ticker", placeholder="GOOG", key="url_ticker").upper().strip()
-        with hc2:
-            url_form_type = st.selectbox("Form type", ["10-K", "10-Q", "Form 10", "8-K"], key="url_form_type")
-        with hc3:
-            url_fiscal_year = st.text_input("Fiscal year", placeholder="2023", max_chars=4, key="url_fiscal_year")
-        with hc4:
-            url_company = st.text_input("Company name", placeholder="Alphabet Inc.", key="url_company")
-        if st.button("📥 Fetch HTML", disabled=not html_url_input, key="fetch_html_url", type="primary"):
+        if st.button("📥 Fetch & Auto-Detect", disabled=not html_url_input, key="fetch_html_url", type="primary"):
             url = html_url_input.strip()
             if not url.startswith("https://"):
                 st.error("❌ URL must start with https://")
             else:
-                with st.spinner("Fetching HTML filing..."):
+                with st.spinner("Fetching filing and detecting metadata..."):
                     try:
                         rh = requests.get(url, headers={"User-Agent": "MeridianPlatform student@meridian.edu"}, timeout=30)
                         if rh.status_code != 200:
                             st.error(f"❌ HTTP {rh.status_code} — check the URL and try again.")
                         else:
-                            fname_meta = _parse_filename_metadata(url.rstrip("/").split("/")[-1])
-                            tick    = url_ticker or fname_meta.get("ticker", "")
-                            ft      = url_form_type
-                            fy      = url_fiscal_year.strip() or fname_meta.get("fiscal_year", "")
-                            company = url_company.strip() or tick or "Unknown"
-                            desc    = f"{company} {ft} ({fy or 'unknown year'}) [HTML]"
+                            text = _strip_html(rh.text)
+                            detected = _detect_url_metadata(url, text)
+                            tick    = detected["ticker"]
+                            ft      = detected["form_type"] or "10-K"
+                            fy      = detected["fiscal_year"]
+                            company = detected["company"] or tick or "Unknown"
+                            cik     = detected["cik"]
+                            st.caption(f"Detected: **{company}** · **{tick or '?'}** · **{ft}** · **{fy or '?'}**")
+
+                            # Override expander if anything is missing
+                            missing = [k for k, v in {"Ticker": tick, "Fiscal year": fy}.items() if not v]
+                            if missing:
+                                with st.expander(f"⚠️ Could not detect {', '.join(missing)} — override here"):
+                                    oc1, oc2, oc3, oc4 = st.columns(4)
+                                    with oc1:
+                                        tick = st.text_input("Ticker", value=tick, key="url_otick").upper().strip() or tick
+                                    with oc2:
+                                        ft = st.selectbox("Form type", ["10-K","10-Q","Form 10","8-K"],
+                                                          index=["10-K","10-Q","Form 10","8-K"].index(ft) if ft in ["10-K","10-Q","Form 10","8-K"] else 0,
+                                                          key="url_oft")
+                                    with oc3:
+                                        fy = st.text_input("Fiscal year", value=fy, max_chars=4, key="url_ofy").strip() or fy
+                                    with oc4:
+                                        company = st.text_input("Company", value=company, key="url_ocompany").strip() or company
+
+                            desc = f"{company} {ft} ({fy or 'unknown year'}) [HTML]"
                             if any(d["source"] == url for d in st.session_state.loaded_docs):
                                 st.warning(f"⚠️ Already loaded: {desc}")
                             else:
-                                text = _strip_html(rh.text)
                                 char_cap = 3_000_000
                                 if len(text) > char_cap:
                                     st.warning(f"Document truncated to {char_cap:,} chars.")
@@ -2065,7 +2152,7 @@ RAG retrieves the most relevant passages from uploaded documents and grounds the
                                 with st.spinner("Chunking with section-aware pipeline..."):
                                     chunks = processor.process_filing(
                                         source=url, company=company, ticker=tick,
-                                        cik="", form_type=ft, fiscal_year=fy,
+                                        cik=cik, form_type=ft, fiscal_year=fy,
                                         text=text, text_source="html_url",
                                     )
                                 st.session_state.all_chunks.extend(chunks)
