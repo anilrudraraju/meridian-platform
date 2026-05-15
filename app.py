@@ -1094,10 +1094,14 @@ def fetch_edgar_filing(ticker: str, form_type: str = "10-K",
         raw_acc = accessions[idx]
         acc_no = raw_acc.replace("-", "")
         filing_date = dates[idx]
-        char_cap = 300000
+        # HTML is clean stripped text — 3M chars covers the largest 10-Ks in full.
+        # The .txt SGML bundle contains boilerplate noise so a lower cap is fine.
+        HTML_CAP = 3_000_000
+        TXT_CAP  =   600_000
 
         # Try primary HTML document first — cleaner than the raw .txt SGML bundle
         clean = None
+        char_cap = HTML_CAP
         primary_doc = primary_docs[idx] if idx < len(primary_docs) else ""
         if primary_doc and primary_doc.lower().endswith((".htm", ".html")):
             html_url = f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{acc_no}/{primary_doc}"
@@ -1111,6 +1115,7 @@ def fetch_edgar_filing(ticker: str, form_type: str = "10-K",
 
         # Fallback: raw .txt SGML submission bundle
         if not clean:
+            char_cap = TXT_CAP
             text_url = f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{acc_no}/{raw_acc}.txt"
             r3 = requests.get(text_url, headers=headers, timeout=30)
             if r3.status_code != 200:
@@ -2052,7 +2057,7 @@ RAG retrieves the most relevant passages from uploaded documents and grounds the
                                 st.warning(f"⚠️ Already loaded: {desc}")
                             else:
                                 text = _strip_html(rh.text)
-                                char_cap = 300000
+                                char_cap = 3_000_000
                                 if len(text) > char_cap:
                                     st.warning(f"Document truncated to {char_cap:,} chars for processing.")
                                 text = text[:char_cap]
