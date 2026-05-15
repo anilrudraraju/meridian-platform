@@ -1967,7 +1967,7 @@ RAG retrieves the most relevant passages from uploaded documents and grounds the
                     st.success(f"✅ {desc} — {len(chunks)} chunks")
             else:
                 st.error(desc)
-                st.info("Tip: Download the PDF from SEC.gov and upload it below.")
+                st.info("Tip: Paste the SEC EDGAR HTML URL below, or download the PDF and upload it.")
 
     with s2:
         st.markdown("#### 📁 Upload PDF or TXT")
@@ -2004,6 +2004,77 @@ RAG retrieves the most relevant passages from uploaded documents and grounds the
                     st.session_state.loaded_docs.append({"source": f.name, "chunks": len(chunks), "chars": sum(len(c["page_content"]) for c in chunks)})
                     st.session_state.rag_system = None
                     st.success(f"✅ {f.name} — {len(chunks)} chunks")
+
+    with st.expander("🔗 Paste HTML URL (use when auto-fetch fails)"):
+        st.caption(
+            "Paste the URL of an HTML filing from SEC EDGAR or a company investor relations page. "
+            "Must be HTTPS."
+        )
+        html_url_input = st.text_input(
+            "HTML filing URL",
+            placeholder="https://www.sec.gov/Archives/edgar/data/.../goog-20231231.htm",
+            key="html_url_input",
+        )
+        hc1, hc2, hc3, hc4 = st.columns(4)
+        with hc1:
+            url_ticker = st.text_input("Ticker", placeholder="GOOG", key="url_ticker").upper().strip()
+        with hc2:
+            url_form_type = st.selectbox("Form type", ["10-K", "10-Q", "Form 10", "8-K"], key="url_form_type")
+        with hc3:
+            url_fiscal_year = st.text_input("Fiscal year", placeholder="2023", max_chars=4, key="url_fiscal_year")
+        with hc4:
+            url_company = st.text_input("Company name", placeholder="Alphabet Inc.", key="url_company")
+
+        if st.button("📥 Fetch HTML", disabled=not html_url_input, key="fetch_html_url"):
+            url = html_url_input.strip()
+            if not url.startswith("https://"):
+                st.error("❌ URL must start with https://")
+            else:
+                with st.spinner("Fetching HTML filing..."):
+                    try:
+                        rh = requests.get(
+                            url,
+                            headers={"User-Agent": "MeridianPlatform student@meridian.edu"},
+                            timeout=30,
+                        )
+                        if rh.status_code != 200:
+                            st.error(f"❌ HTTP {rh.status_code} — check the URL and try again.")
+                        else:
+                            url_filename = url.rstrip("/").split("/")[-1]
+                            fname_meta = _parse_filename_metadata(url_filename)
+                            tick = url_ticker or fname_meta.get("ticker", "")
+                            ft = url_form_type
+                            fy = url_fiscal_year.strip() or fname_meta.get("fiscal_year", "")
+                            company = url_company.strip() or tick or "Unknown"
+                            desc = f"{company} {ft} ({fy or 'unknown year'}) [HTML]"
+
+                            if any(d["source"] == url for d in st.session_state.loaded_docs):
+                                st.warning(f"⚠️ Already loaded: {desc}")
+                            else:
+                                text = _strip_html(rh.text)
+                                char_cap = 300000
+                                if len(text) > char_cap:
+                                    st.warning(f"Document truncated to {char_cap:,} chars for processing.")
+                                text = text[:char_cap]
+                                with st.spinner("Chunking with section-aware pipeline..."):
+                                    chunks = processor.process_filing(
+                                        source=url,
+                                        company=company,
+                                        ticker=tick,
+                                        cik="",
+                                        form_type=ft,
+                                        fiscal_year=fy,
+                                        text=text,
+                                        text_source="html_url",
+                                    )
+                                st.session_state.all_chunks.extend(chunks)
+                                st.session_state.loaded_docs.append({
+                                    "source": url, "chunks": len(chunks), "chars": len(text)
+                                })
+                                st.session_state.rag_system = None
+                                st.success(f"✅ {desc} — {len(chunks)} chunks")
+                    except Exception as e:
+                        st.error(f"❌ Fetch error: {e}")
 
     if st.session_state.loaded_docs:
         st.markdown(f"**{len(st.session_state.loaded_docs)} docs loaded · {len(st.session_state.all_chunks)} total chunks**")
