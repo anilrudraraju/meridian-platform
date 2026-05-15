@@ -1008,6 +1008,39 @@ Answer:"""
 # EDGAR FETCHER — new helper (extends platform for real 10-K data)
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _strip_html(html: str) -> str:
+    """Strip HTML/iXBRL tags, skip script/style blocks, preserve whitespace at block boundaries."""
+    from html.parser import HTMLParser
+
+    class _Stripper(HTMLParser):
+        def __init__(self):
+            super().__init__(convert_charrefs=True)
+            self._parts: list = []
+            self._skip = False
+
+        def handle_starttag(self, tag, attrs):
+            if tag in ("script", "style", "head"):
+                self._skip = True
+            elif tag in ("p", "div", "br", "tr", "li", "h1", "h2", "h3", "h4", "h5", "h6"):
+                self._parts.append("\n")
+
+        def handle_endtag(self, tag):
+            if tag in ("script", "style", "head"):
+                self._skip = False
+            elif tag in ("p", "div", "td", "th", "li", "h1", "h2", "h3", "h4", "h5", "h6"):
+                self._parts.append("\n")
+
+        def handle_data(self, data):
+            if not self._skip:
+                # \xa0 = non-breaking space from HTML entities — normalize to regular space
+                self._parts.append(data.replace("\xa0", " "))
+
+    stripper = _Stripper()
+    stripper.feed(html)
+    text = "".join(stripper._parts)
+    return re.sub(r'\n{3,}', '\n\n', text).strip()
+
+
 def fetch_edgar_filing(ticker: str, form_type: str = "10-K",
                        target_year: str = None) -> Tuple[bool, str, str, str, str]:
     headers = {"User-Agent": "MeridianPlatform student@meridian.edu"}
@@ -1030,6 +1063,7 @@ def fetch_edgar_filing(ticker: str, form_type: str = "10-K",
         accessions = filings.get("accessionNumber", [])
         dates = filings.get("filingDate", [])
         report_dates = filings.get("reportDate", [])  # fiscal period end date
+        primary_docs = filings.get("primaryDocument", [])  # e.g. "goog-20231231.htm"
 
         if target_year:
             # Match by reportDate (fiscal year end) — e.g. target_year="2023" matches "2023-12-31"
@@ -1060,14 +1094,30 @@ def fetch_edgar_filing(ticker: str, form_type: str = "10-K",
         raw_acc = accessions[idx]
         acc_no = raw_acc.replace("-", "")
         filing_date = dates[idx]
-        text_url = f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{acc_no}/{raw_acc}.txt"
-        r3 = requests.get(text_url, headers=headers, timeout=30)
-        if r3.status_code != 200:
-            return False, "", f"Download failed (HTTP {r3.status_code}). Upload the PDF manually.", "", ""
-        clean = re.sub(r'<[^>]+>', ' ', r3.text)
-        # Cap at 300k chars (~75k tokens) — much larger than before,
-        # still avoids memory issues. Show warning if truncated.
         char_cap = 300000
+
+        # Try primary HTML document first — cleaner than the raw .txt SGML bundle
+        clean = None
+        primary_doc = primary_docs[idx] if idx < len(primary_docs) else ""
+        if primary_doc and primary_doc.lower().endswith((".htm", ".html")):
+            html_url = f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{acc_no}/{primary_doc}"
+            try:
+                rh = requests.get(html_url, headers=headers, timeout=30)
+                if rh.status_code == 200:
+                    clean = _strip_html(rh.text)
+                    st.caption(f"📄 Fetched primary HTML document: `{primary_doc}`")
+            except Exception:
+                pass  # fall through to .txt
+
+        # Fallback: raw .txt SGML submission bundle
+        if not clean:
+            text_url = f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{acc_no}/{raw_acc}.txt"
+            r3 = requests.get(text_url, headers=headers, timeout=30)
+            if r3.status_code != 200:
+                return False, "", f"Download failed (HTTP {r3.status_code}). Upload the PDF manually.", "", ""
+            clean = re.sub(r'<[^>]+>', ' ', r3.text)
+            st.caption("📄 Fetched raw .txt submission bundle (HTML fallback unavailable)")
+
         if len(clean) > char_cap:
             st.warning(f"Document truncated to {char_cap:,} chars for processing. Full filing may contain more.")
         clean = clean[:char_cap]
