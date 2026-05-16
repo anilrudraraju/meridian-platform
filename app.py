@@ -16,6 +16,7 @@ import io
 from datetime import datetime
 from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass
+from special_situations import spinoff_lab
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SECTION & RETRIEVAL CONSTANTS
@@ -166,6 +167,13 @@ with st.sidebar:
     st.caption("MessageBus · investment committee debate · voting *(Week 9)*")
     st.markdown("🔜 **Layer 10** — Integrated System + Dashboard")
     st.caption("All layers unified · advisor workstation · client portal *(Week 10)*")
+
+    st.divider()
+    if st.button("🔬 Special Situations Lab", use_container_width=True,
+                 type="primary" if st.session_state.active_layer == "spinoff_lab" else "secondary"):
+        st.session_state.active_layer = "spinoff_lab"
+        st.rerun()
+    st.caption("Spinoff Research Lab · Greenblatt screen · thesis tracker")
 
     st.divider()
     # Progress indicator
@@ -2826,3 +2834,9 @@ The evaluation framework then measures, quantitatively, whether the fine-tuned m
             file_name="week4_eval_results.json",
             mime="application/json"
         )
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SPECIAL SITUATIONS LAB
+# ══════════════════════════════════════════════════════════════════════════════
+if st.session_state.active_layer == "spinoff_lab":
+    spinoff_lab.render()

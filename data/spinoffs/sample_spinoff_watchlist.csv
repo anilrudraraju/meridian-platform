@@ -1,0 +1,6 @@
+ticker,parent_ticker,company_name,parent_name,spinoff_date,exchange,sector,cik,notes
+SOLV,HON,Solventum Corporation,Honeywell International,2024-04-01,NYSE,Healthcare,,Healthcare division spun from 3M via Honeywell acquisition; still being analyzed
+GEV,GE,GE Vernova,General Electric,2024-04-02,NYSE,Industrials,,GE energy assets; forced selling expected from GE index weight rebalancing
+WBD,T,Warner Bros. Discovery,AT&T,2022-04-08,NASDAQ,Media,,Post-merger spin; index exclusions drove early selling pressure
+CANO,THC,Cano Health,Tenet Healthcare,2021-11-15,NYSE,Healthcare,,Value-based primary care; significant institutional forced selling post-spin
+ESAB,GTLS,ESAB Corporation,Chart Industries,2022-04-04,NYSE,Industrials,,Welding/gas equipment; compelling standalone ROIC story
