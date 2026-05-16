@@ -11,6 +11,7 @@ from typing import List
 
 import pandas as pd
 import streamlit as st
+from core.cost import daily_spend, DAILY_CAP_USD, read_log
 
 from spinoff.models import (
     SpinoffEvent, GreenblattScore, ManagementPromise, ThesisEntry, CostEntry,
@@ -447,6 +448,30 @@ def _tab_thesis() -> None:
 def _tab_cost_log() -> None:
     st.subheader("💰 Research Cost Log")
     st.caption("Track API and data costs per spinoff position.")
+
+    # ── LLM API spend from core.cost ─────────────────────────────────────────
+    with st.expander("🤖 LLM API Spend Today (core.cost)", expanded=True):
+        spent = daily_spend()
+        remaining = max(0.0, DAILY_CAP_USD - spent)
+        pct = min(1.0, spent / DAILY_CAP_USD) if DAILY_CAP_USD > 0 else 0.0
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Spent Today", f"${spent:.4f}")
+        col2.metric("Daily Cap", f"${DAILY_CAP_USD:.2f}")
+        col3.metric("Remaining", f"${remaining:.4f}")
+        st.progress(pct, text=f"{pct*100:.1f}% of daily cap used")
+        llm_entries = read_log()
+        today_entries = [e for e in llm_entries if e.get("date") == date.today().isoformat()]
+        if today_entries:
+            st.dataframe(
+                pd.DataFrame(today_entries)[
+                    ["timestamp", "model", "technique", "caller",
+                     "prompt_tokens", "completion_tokens", "cost_usd"]
+                ],
+                use_container_width=True,
+            )
+        else:
+            st.info("No LLM calls logged today.")
+    st.divider()
 
     costs: List[CostEntry] = st.session_state[_SS_COSTS]
     totals = total_by_category(costs)
