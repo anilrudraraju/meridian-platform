@@ -2007,10 +2007,11 @@ RAG retrieves the most relevant passages from uploaded documents and grounds the
         st.warning("Enter your OpenAI API key in the sidebar.")
         st.stop()
 
-    if "all_chunks"   not in st.session_state: st.session_state.all_chunks   = []
-    if "rag_system"   not in st.session_state: st.session_state.rag_system   = None
-    if "qa_history"   not in st.session_state: st.session_state.qa_history   = []
-    if "loaded_docs"  not in st.session_state: st.session_state.loaded_docs  = []
+    if "all_chunks"         not in st.session_state: st.session_state.all_chunks         = []
+    if "rag_system"         not in st.session_state: st.session_state.rag_system         = None
+    if "qa_history"         not in st.session_state: st.session_state.qa_history         = []
+    if "loaded_docs"        not in st.session_state: st.session_state.loaded_docs        = []
+    if "needs_xbrl_ticker"  not in st.session_state: st.session_state.needs_xbrl_ticker  = False
 
     processor = DocumentProcessor(chunk_size=2000, chunk_overlap=400)
 
@@ -2096,7 +2097,10 @@ RAG retrieves the most relevant passages from uploaded documents and grounds the
                     st.session_state.loaded_docs.append({"source": f.name, "chunks": len(chunks), "chars": sum(len(c["page_content"]) for c in chunks)})
                     st.session_state.rag_system = None
                     st.success(f"✅ {f.name} — {len(chunks)} chunks ready to index")
-                    _auto_fetch_xbrl(tick)
+                    if tick:
+                        _auto_fetch_xbrl(tick)
+                    else:
+                        st.session_state.needs_xbrl_ticker = True
 
     else:  # Paste HTML URL
         st.caption("Paste any HTTPS link to a 10-K, 10-Q, or Form 10 HTML filing from SEC EDGAR or a company investor relations page. Ticker, form type, and year are detected automatically.")
@@ -2159,7 +2163,10 @@ RAG retrieves the most relevant passages from uploaded documents and grounds the
                                 st.session_state.loaded_docs.append({"source": url, "chunks": len(chunks), "chars": len(text)})
                                 st.session_state.rag_system = None
                                 st.success(f"✅ {desc} — {len(chunks)} chunks ready to index")
-                                _auto_fetch_xbrl(tick)
+                                if tick:
+                                    _auto_fetch_xbrl(tick)
+                                else:
+                                    st.session_state.needs_xbrl_ticker = True
                     except Exception as e:
                         st.error(f"❌ Fetch error: {e}")
 
@@ -2170,6 +2177,22 @@ RAG retrieves the most relevant passages from uploaded documents and grounds the
             st.markdown(f"• `{d['source']}` — {d['chunks']} chunks, {d['chars']:,} chars")
         if len(st.session_state.loaded_docs) < 3:
             st.warning(f"Load {3 - len(st.session_state.loaded_docs)} more document(s) to meet assignment requirement.")
+
+    # Ticker prompt — shown when a document was loaded but ticker couldn't be detected
+    if st.session_state.get("needs_xbrl_ticker"):
+        st.warning("📊 **Stock ticker not detected automatically.** Enter it below to enable exact financial numbers (XBRL) for Q&A.")
+        tp1, tp2 = st.columns([3, 1])
+        with tp1:
+            manual_ticker = st.text_input(
+                "Stock ticker symbol", placeholder="e.g. AAPL, GOOGL, MSFT",
+                key="manual_xbrl_ticker"
+            ).upper().strip()
+        with tp2:
+            st.write("")  # vertical align
+            if st.button("✅ Enable XBRL", disabled=not manual_ticker, key="enable_xbrl_btn"):
+                _auto_fetch_xbrl(manual_ticker)
+                st.session_state.needs_xbrl_ticker = False
+                st.rerun()
 
     # ── Step 2: Chunk & Index ─────────────────────────────────────────────────
     st.divider()
@@ -2290,16 +2313,18 @@ RAG retrieves the most relevant passages from uploaded documents and grounds the
                 if not context:
                     st.error("❌ No data found. Make sure documents are indexed (Step 2) and the ticker/year filters match your loaded filing.")
                 else:
-                    with st.spinner("Generating answer with GPT-4..."):
+                    with st.spinner("Generating answer with GPT-4o..."):
                         answer = rag.answer_with_context(final_q, context)
                     if _gpt_refused(answer):
                         st.error(f"❌ Insufficient data: {answer}")
                     else:
+                        if route == "both":
+                            st.info("📊 **Financial figures from XBRL** (exact SEC structured data) + **document context from RAG**")
+                        else:
+                            st.info("📊 **Financial figures from XBRL** — exact numbers sourced directly from SEC structured data")
                         st.markdown("### 💡 Answer")
                         st.markdown(answer)
-                        source_note = "XBRL structured data" + (" + RAG document chunks" if route == "both" else "")
-                        st.caption(f"Answer grounded in: {source_note}")
-                        with st.expander("📊 Context sent to GPT-4"):
+                        with st.expander("📊 Context sent to GPT-4o"):
                             st.text(context[:3000] + ("…" if len(context) > 3000 else ""))
                         st.session_state.qa_history.append({
                             "question": final_q, "answer": answer,
@@ -2317,6 +2342,10 @@ RAG retrieves the most relevant passages from uploaded documents and grounds the
                 elif _gpt_refused(response.answer):
                     st.error(f"❌ Insufficient data: {response.answer}")
                 else:
+                    if route in ("structured", "both") and not xbrl_facts:
+                        st.warning("⚠️ **XBRL not available** — financial figures sourced from document text, not structured SEC data. Enter a ticker above for exact numbers.")
+                    else:
+                        st.info("📄 **Answer from document chunks** — retrieved from your indexed filing")
                     st.markdown("### 💡 Answer")
                     st.markdown(response.answer)
                     conf_colors = {"High": "green", "Medium": "orange", "Low": "red"}
