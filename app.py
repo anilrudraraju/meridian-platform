@@ -71,56 +71,31 @@ with st.sidebar:
 
     st.markdown("**🏗️ Platform Layers**")
 
-    # Weeks 1-3 — built (clickable nav)
-    if st.button("✅ Layer 1 — Guardrails & Prompts", use_container_width=True,
-                 type="primary" if st.session_state.active_layer == "guardrails" else "secondary"):
-        st.session_state.active_layer = "guardrails"
-        st.rerun()
-    st.caption("FinancialPromptEngine · 5 techniques · FinancialGuardrails")
-
-    if st.button("✅ Layer 2 — Portfolio Dashboard", use_container_width=True,
-                 type="primary" if st.session_state.active_layer == "portfolio" else "secondary"):
-        st.session_state.active_layer = "portfolio"
-        st.rerun()
-    st.caption("MarketDataFetcher · yfinance · Live portfolio valuation")
-
-    if st.button("✅ Layer 3 — Document RAG", use_container_width=True,
-                 type="primary" if st.session_state.active_layer == "rag" else "secondary"):
-        st.session_state.active_layer = "rag"
-        st.rerun()
-    st.caption("DocumentProcessor · RAGSystem · EDGAR 10-K auto-fetch")
+    for label, key, caption in [
+        ("✅ Layer 1 — Guardrails & Prompts",    "guardrails",    "FinancialPromptEngine · 5 techniques · FinancialGuardrails"),
+        ("✅ Layer 2 — Portfolio Dashboard",      "portfolio",     "MarketDataFetcher · yfinance · Live portfolio valuation"),
+        ("✅ Layer 3 — Document RAG",             "rag",           "DocumentProcessor · RAGSystem · EDGAR 10-K auto-fetch"),
+        ("✅ Layer 4 — Fine-Tuning & Evaluation", "finetune",      "FinancialEvaluator · base vs fine-tuned · compliance scoring"),
+        ("✅ Layer 5 — Responsible AI & Safety",  "responsible_ai","PII scanner · bias detection · audit logging"),
+    ]:
+        if st.button(label, use_container_width=True,
+                     type="primary" if st.session_state.active_layer == key else "secondary"):
+            st.session_state.active_layer = key
+            st.rerun()
+        st.caption(caption)
 
     st.divider()
 
-    if st.button("✅ Layer 4 — Fine-Tuning & Evaluation", use_container_width=True,
-                 type="primary" if st.session_state.active_layer == "finetune" else "secondary"):
-        st.session_state.active_layer = "finetune"
-        st.rerun()
-    st.caption("FinancialEvaluator · base vs fine-tuned · compliance scoring")
-
-    st.divider()
-
-    # Weeks 5-6
-    if st.button("✅ Layer 5 — Responsible AI & Safety", use_container_width=True,
-                 type="primary" if st.session_state.active_layer == "responsible_ai" else "secondary"):
-        st.session_state.active_layer = "responsible_ai"
-        st.rerun()
-    st.caption("PII scanner · bias detection · audit logging")
-    st.markdown("🔜 **Layer 6** — Autonomous ReAct Agents")
-    st.caption("LangChain agents · tool use · portfolio monitor *(Week 6)*")
-
-    st.divider()
-
-
-    # Weeks 7-10 — coming
-    st.markdown("🔜 **Layer 7** — Multi-Agent Collaboration")
-    st.caption("CrewAI · Research + Risk + Performance + PM agents *(Week 7)*")
-    st.markdown("🔜 **Layer 8** — Stateful Workflow Automation")
-    st.caption("LangGraph · rebalancing state machine · human-in-loop *(Week 8)*")
-    st.markdown("🔜 **Layer 9** — Agent Communication & Consensus")
-    st.caption("MessageBus · investment committee debate · voting *(Week 9)*")
-    st.markdown("🔜 **Layer 10** — Integrated System + Dashboard")
-    st.caption("All layers unified · advisor workstation · client portal *(Week 10)*")
+    # Coming soon — Layers 6-10
+    for layer, caption in [
+        ("🔜 **Layer 6** — Autonomous ReAct Agents",      "LangChain agents · tool use · portfolio monitor *(Week 6)*"),
+        ("🔜 **Layer 7** — Multi-Agent Collaboration",     "CrewAI · Research + Risk + Performance + PM agents *(Week 7)*"),
+        ("🔜 **Layer 8** — Stateful Workflow Automation",  "LangGraph · rebalancing state machine · human-in-loop *(Week 8)*"),
+        ("🔜 **Layer 9** — Agent Communication & Consensus","MessageBus · investment committee debate · voting *(Week 9)*"),
+        ("🔜 **Layer 10** — Integrated System + Dashboard","All layers unified · advisor workstation · client portal *(Week 10)*"),
+    ]:
+        st.markdown(layer)
+        st.caption(caption)
 
     st.divider()
     if st.button("🔬 Special Situations Lab", use_container_width=True,
