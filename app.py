@@ -1822,6 +1822,29 @@ def _detect_url_metadata(url: str, html_text: str) -> dict:
     return meta
 
 
+def _clear_for_new_company(new_ticker: str) -> None:
+    """If new_ticker is different from already-loaded companies, wipe all state and start fresh.
+    Only one company's data is supported at a time to prevent cross-company data mixing."""
+    if not new_ticker:
+        return
+    existing = set(st.session_state.get("xbrl_by_ticker", {}).keys())
+    if not existing or new_ticker in existing:
+        return  # same company or no prior data — nothing to clear
+    old = ", ".join(existing)
+    rag = st.session_state.get("rag_system")
+    if rag is not None:
+        try:
+            rag.clear()
+        except Exception:
+            pass
+    st.session_state.all_chunks = []
+    st.session_state.loaded_docs = []
+    st.session_state.xbrl_by_ticker = {}
+    st.session_state.needs_xbrl_ticker = False
+    st.session_state.rag_system = None
+    st.info(f"🔄 Previous data for **{old}** cleared — starting fresh with **{new_ticker}**.")
+
+
 def _auto_fetch_xbrl(ticker: str) -> None:
     """Fetch XBRL facts for ticker and cache per-ticker in session state."""
     if not ticker:
@@ -2048,6 +2071,7 @@ RAG retrieves the most relevant passages from uploaded documents and grounds the
                     st.warning(f"⚠️ Already loaded: {desc}")
                 else:
                     fy = fy_input or desc[-5:-1]
+                    _clear_for_new_company(edgar_ticker)
                     with st.spinner("Chunking with section-aware pipeline..."):
                         chunks = processor.process_filing(
                             source=desc, company=edgar_company, ticker=edgar_ticker,
@@ -2089,6 +2113,7 @@ RAG retrieves the most relevant passages from uploaded documents and grounds the
                                 fy = st.text_input("Fiscal year", value=fy, max_chars=4, key=f"ofy_{f.name}").strip() or fy
 
                     st.caption(f"Detected: **{tick or '?'}** · **{ft}** · **{fy or '?'}**")
+                    _clear_for_new_company(tick)
                     with st.spinner(f"Processing {f.name}..."):
                         raw = f.read()
                         chunks = processor.process_filing(
@@ -2157,6 +2182,7 @@ RAG retrieves the most relevant passages from uploaded documents and grounds the
                                 if len(text) > char_cap:
                                     st.warning(f"Document truncated to {char_cap:,} chars.")
                                 text = text[:char_cap]
+                                _clear_for_new_company(tick)
                                 with st.spinner("Chunking with section-aware pipeline..."):
                                     chunks = processor.process_filing(
                                         source=url, company=company, ticker=tick,
@@ -2292,11 +2318,22 @@ RAG retrieves the most relevant passages from uploaded documents and grounds the
                 st.error("RAG system is not initialized. Please index documents first.")
                 st.stop()
 
-            xbrl_facts = st.session_state.get("xbrl_by_ticker", {}).get(q_ticker, {})
+            # One company at a time is enforced at load time (_clear_for_new_company).
+            # Auto-use the single company's XBRL; ticker filter in Step 3 only narrows by year/form.
+            _xbrl_store = st.session_state.get("xbrl_by_ticker", {})
+            if q_ticker:
+                xbrl_facts = _xbrl_store.get(q_ticker, {})
+            elif _xbrl_store:
+                xbrl_facts = next(iter(_xbrl_store.values()))
+            else:
+                xbrl_facts = {}
+
             route = route_query(final_q)
             route_label = {"structured": "🔢 XBRL", "narrative": "📄 RAG", "both": "🔀 XBRL + RAG"}
-            xbrl_status = " — XBRL facts loaded ✅" if xbrl_facts else (
-                f" — ⚠️ No XBRL facts for {q_ticker} (will use RAG)" if q_ticker else " — using document chunks (add ticker above for exact numbers)"
+            _active_ticker = q_ticker or (next(iter(_xbrl_store.keys())) if _xbrl_store else "")
+            xbrl_status = (
+                f" — XBRL facts loaded ✅ ({_active_ticker})" if xbrl_facts
+                else " — no XBRL facts available (load a document with a known ticker)"
             )
             st.caption(f"Query route: **{route_label.get(route, route)}**{xbrl_status}")
 
