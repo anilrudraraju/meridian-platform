@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Optional
 
 from core.dataclasses import PromptResult
+from core.cost import check_budget, log_call
 
 
 class FinancialPromptEngine:
@@ -30,6 +31,10 @@ class FinancialPromptEngine:
 
     def execute_prompt(self, prompt: str, temperature: float = 0.7,
                        max_tokens: int = 1000, technique: str = "zero-shot") -> Optional[PromptResult]:
+        under_budget, spent, cap = check_budget()
+        if not under_budget:
+            st.error(f"❌ Daily budget cap of ${cap:.2f} reached (spent ${spent:.4f}). LLM call blocked.")
+            return None
         try:
             response = self._client.chat.completions.create(
                 model=self.model,
@@ -45,6 +50,14 @@ class FinancialPromptEngine:
                 st.warning(f"⚠️ No cost data for model '{self.model}' — using gpt-4o pricing as estimate.")
             costs = self.token_costs.get(self.model, self.token_costs["gpt-4o"])
             cost = p_tok * costs["prompt"] + c_tok * costs["completion"]
+            log_call(
+                model=self.model,
+                prompt_tokens=p_tok,
+                completion_tokens=c_tok,
+                cost_usd=cost,
+                technique=technique,
+                caller="FinancialPromptEngine",
+            )
             return PromptResult(
                 prompt=prompt, response=content, model=self.model,
                 tokens_used=tokens_used, cost_estimate=cost,
