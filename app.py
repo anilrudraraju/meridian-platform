@@ -1012,6 +1012,11 @@ def _strip_html(html: str) -> str:
     """Strip HTML/iXBRL tags, skip script/style blocks, preserve whitespace at block boundaries."""
     from html.parser import HTMLParser
 
+    # Block-level tags that start a new line; closing these also adds a newline
+    _BLOCK = {"p", "div", "br", "tr", "li", "h1", "h2", "h3", "h4", "h5",
+              "h6", "section", "article", "header", "footer", "main", "aside",
+              "table", "thead", "tbody", "tfoot", "blockquote"}
+
     class _Stripper(HTMLParser):
         def __init__(self):
             super().__init__(convert_charrefs=True)
@@ -1021,24 +1026,26 @@ def _strip_html(html: str) -> str:
         def handle_starttag(self, tag, attrs):
             if tag in ("script", "style", "head"):
                 self._skip = True
-            elif tag in ("p", "div", "br", "tr", "li", "h1", "h2", "h3", "h4", "h5", "h6"):
+            elif tag in _BLOCK:
                 self._parts.append("\n")
 
         def handle_endtag(self, tag):
             if tag in ("script", "style", "head"):
                 self._skip = False
-            elif tag in ("p", "div", "td", "th", "li", "h1", "h2", "h3", "h4", "h5", "h6"):
+            elif tag in _BLOCK:
                 self._parts.append("\n")
 
         def handle_data(self, data):
             if not self._skip:
-                # \xa0 = non-breaking space from HTML entities — normalize to regular space
                 self._parts.append(data.replace("\xa0", " "))
 
     stripper = _Stripper()
     stripper.feed(html)
     text = "".join(stripper._parts)
-    return re.sub(r'\n{3,}', '\n\n', text).strip()
+    # Collapse 3+ newlines to 2 (paragraph break), then collapse lone \n with space
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    text = re.sub(r'(?<!\n)\n(?!\n)', ' ', text)   # single \n → space (inline breaks)
+    return re.sub(r' {2,}', ' ', text).strip()
 
 
 def fetch_edgar_filing(ticker: str, form_type: str = "10-K",
@@ -1730,6 +1737,8 @@ def retrieve(question: str, ticker: str, fiscal_year: str, form_type: str,
     return "\n\n---\n\n".join(parts) if parts else ""
 
 
+# Only used on the XBRL path where context is programmatically built and may be empty.
+# NOT applied to the RAG path — when chunks are found GPT's answer is always shown as-is.
 _INSUFFICIENT_PATTERNS = [
     "i don't have enough information",
     "don't have enough information",
@@ -1737,16 +1746,11 @@ _INSUFFICIENT_PATTERNS = [
     "cannot calculate",
     "unable to calculate",
     "unable to answer",
-    "not provided in",
-    "not in the context",
-    "not in the data",
     "i don't have the data",
-    "no information",
-    "no data",
 ]
 
 def _gpt_refused(answer: str) -> bool:
-    """Return True when GPT signalled it couldn't answer due to missing data."""
+    """Return True when GPT signals it cannot answer due to missing data (XBRL path only)."""
     a = answer.lower()
     return any(p in a for p in _INSUFFICIENT_PATTERNS)
 
@@ -2339,8 +2343,6 @@ RAG retrieves the most relevant passages from uploaded documents and grounds the
 
                 if not response.sources:
                     st.error("❌ No relevant chunks found in the index. Load and index more documents, or rephrase your question.")
-                elif _gpt_refused(response.answer):
-                    st.error(f"❌ Insufficient data: {response.answer}")
                 else:
                     if route in ("structured", "both") and not xbrl_facts:
                         st.warning("⚠️ **XBRL not available** — financial figures sourced from document text, not structured SEC data. Enter a ticker above for exact numbers.")
