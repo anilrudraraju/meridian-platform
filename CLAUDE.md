@@ -32,7 +32,8 @@ No build step, lint config, or test suite exists. The running app is the artifac
 | 2 | ✅ BUILT | `"portfolio"` | 📈 Layer 2 — Portfolio Dashboard |
 | 3 | ✅ BUILT | `"rag"` | 📄 Layer 3 — Document RAG |
 | 4 | ✅ BUILT | `"finetune"` | 🔬 Layer 4 — Fine-Tuning & Evaluation |
-| 5–10 | 🔜 | follow same pattern | — |
+| 5 | ✅ BUILT | `"responsible_ai"` | 🧭 Layer 5 — Responsible AI & Safety |
+| 6–10 | 🔜 | follow same pattern | — |
 
 ---
 
@@ -51,7 +52,7 @@ Adding a new layer means:
 ## CRITICAL CODING RULES — Always Follow
 
 1. **Navigation uses named `active_layer` strings.**
-   - ✅ `st.session_state.active_layer == "guardrails"` / `"portfolio"` / `"rag"` / `"finetune"`
+   - ✅ `st.session_state.active_layer == "guardrails"` / `"portfolio"` / `"rag"` / `"finetune"` / `"responsible_ai"`
    - ❌ Never `tab1`, `tab2`, or `st.tabs()`
 
 2. **Classes must match notebook source exactly.**
@@ -275,15 +276,31 @@ CHROMA_COLLECTION  = "meridian_docs"
 
 ---
 
-## Layer 5 — Next Layer (Responsible AI & Safety)
+## Layer 5 — Responsible AI & Safety (BUILT)
 
 **Navigation value:** `"responsible_ai"` — label "🧭 Layer 5 — Responsible AI & Safety"
 
-Planned features: bias detection, hallucination guard, audit logging.
+Source: `week5_capstone.ipynb`. Classes live in `core/safety.py`.
+
+```python
+class PIIScanner      # PII + injection + blocked-topic detection
+class BiasDetector    # demographic bias testing across prompt variants
+class AuditLogger     # append-only JSONL audit log at /tmp/meridian_audit.jsonl
+```
+
+UI tabs: PII Scanner · Output Compliance · Bias Detector · Audit Log
+
+---
+
+## Layer 6 — Next Layer (Autonomous ReAct Agents)
+
+**Navigation value:** `"agents"` — label "🤖 Layer 6 — Autonomous ReAct Agents"
+
+Planned: LangChain agents · tool use · portfolio monitor *(Week 6)*
 
 Adding it follows the same pattern as all prior layers:
-1. Add a sidebar button setting `st.session_state.active_layer = "responsible_ai"`
-2. Add a corresponding `if st.session_state.active_layer == "responsible_ai":` UI block
+1. Add a sidebar button setting `st.session_state.active_layer = "agents"`
+2. Add a corresponding `if st.session_state.active_layer == "agents":` UI block
 
 ---
 
