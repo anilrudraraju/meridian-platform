@@ -33,6 +33,7 @@ from core.rag import (
     build_chroma_filter, route_query, retrieve, _gpt_refused, _INSUFFICIENT_PATTERNS,
 )
 from core.evaluation import FinancialEvaluator, BASE_MODEL, FINE_TUNED_MODEL, load_evaluator
+from core.react_agent import PortfolioReActAgent, SafeAgentExecutor, AgentEvaluator
 from core.chunking import (
     get_chunking_config, _parse_filename_metadata, _detect_fiscal_year_end,
     _detect_quarter_from_text, _split_into_sections, _chunk_by_paragraphs,
@@ -77,6 +78,7 @@ with st.sidebar:
         ("✅ Layer 3 — Document RAG",             "rag",           "DocumentProcessor · RAGSystem · EDGAR 10-K auto-fetch"),
         ("✅ Layer 4 — Fine-Tuning & Evaluation", "finetune",      "FinancialEvaluator · base vs fine-tuned · compliance scoring"),
         ("✅ Layer 5 — Responsible AI & Safety",  "responsible_ai","PII scanner · bias detection · audit logging"),
+        ("✅ Layer 6 — Autonomous ReAct Agents",   "agents",        "LangChain · ReAct loop · portfolio monitor · guardrails"),
     ]:
         if st.button(label, use_container_width=True,
                      type="primary" if st.session_state.active_layer == key else "secondary"):
@@ -86,9 +88,8 @@ with st.sidebar:
 
     st.divider()
 
-    # Coming soon — Layers 6-10
+    # Coming soon — Layers 7-10
     for layer, caption in [
-        ("🔜 **Layer 6** — Autonomous ReAct Agents",      "LangChain agents · tool use · portfolio monitor *(Week 6)*"),
         ("🔜 **Layer 7** — Multi-Agent Collaboration",     "CrewAI · Research + Risk + Performance + PM agents *(Week 7)*"),
         ("🔜 **Layer 8** — Stateful Workflow Automation",  "LangGraph · rebalancing state machine · human-in-loop *(Week 8)*"),
         ("🔜 **Layer 9** — Agent Communication & Consensus","MessageBus · investment committee debate · voting *(Week 9)*"),
@@ -106,7 +107,7 @@ with st.sidebar:
 
     st.divider()
     # Progress indicator
-    layers_done = 5
+    layers_done = 6
     st.progress(layers_done / 10, text=f"Progress: {layers_done}/10 layers built")
 
 def _clear_for_new_company(new_ticker: str) -> None:
@@ -1371,6 +1372,212 @@ All guardrails build on top of the `FinancialGuardrails` class from Layer 1.
                 file_name="meridian_audit.jsonl",
                 mime="application/jsonl",
             )
+
+# ══════════════════════════════════════════════════════════════════════════════
+# LAYER 6 — AUTONOMOUS REACT AGENTS
+# ══════════════════════════════════════════════════════════════════════════════
+if st.session_state.active_layer == "agents":
+    st.header("🤖 Layer 6 — Autonomous ReAct Agents")
+    st.caption("Week 6 · LangChain ReAct framework · portfolio monitoring · FinancialGuardrails integration")
+
+    with st.expander("📖 About This Layer — What Was Built & How", expanded=False):
+        st.markdown("""
+### Goal
+Build a single autonomous AI agent that can reason, plan, select tools, and iterate — without being told each step explicitly.
+The agent uses the **ReAct (Reasoning + Acting)** framework: it alternates between *thinking* about what to do and *calling tools* to get data, then loops until it has a complete answer.
+
+---
+
+### What Was Done & Where
+
+| Step | What | Where |
+|------|------|-------|
+| 1 | Built 3 yfinance tools: `GetStockPrice`, `GetPortfolioValue`, `CheckPortfolioAlerts` | `core/react_agent.py` |
+| 2 | Created `PortfolioReActAgent` using LangChain `create_react_agent` + `AgentExecutor` | `core/react_agent.py` |
+| 3 | Wrapped agent in `SafeAgentExecutor` — reuses `FinancialGuardrails` from Layer 1 | `core/react_agent.py` |
+| 4 | Built `AgentEvaluator` with 4 test cases measuring accuracy and tool-call efficiency | `core/react_agent.py` |
+| 5 | Wired into Streamlit with ReAct trace display and evaluation dashboard | `app.py` |
+
+---
+
+### The ReAct Loop
+```
+User task → Thought (what should I do?) → Action (call a tool) → Observation (result)
+         ↑_______________________________________________|  (repeat until done)
+                               → Final Answer
+```
+Each iteration = one GPT-4o API call. The agent runs up to 10 iterations before stopping.
+
+---
+
+### Key Classes
+- **`PortfolioReActAgent`** — core agent with 3 tools, GPT-4o, max 10 iterations
+- **`SafeAgentExecutor`** — adds Layer 1 guardrails to input + output
+- **`AgentEvaluator`** — runs 4 predefined test cases, measures accuracy and avg steps
+""")
+
+    if not api_key:
+        st.warning("Enter your OpenAI API key in the sidebar to use the agent.")
+        st.stop()
+
+    tab_runner, tab_eval, tab_tools = st.tabs(["🤖 Agent Runner", "📊 Evaluation", "🔧 Tools Reference"])
+
+    # ── Tab 1: Agent Runner ───────────────────────────────────────────────────
+    with tab_runner:
+        st.subheader("Portfolio Monitoring Agent")
+        st.caption("The agent reasons through your task step-by-step using ReAct, calling tools as needed.")
+
+        col1, col2 = st.columns([1, 1])
+        with col1:
+            holdings_input = st.text_area(
+                "Portfolio Holdings (JSON)",
+                value='{"AAPL": 100, "MSFT": 50, "GOOGL": 75}',
+                height=100,
+                help='Format: {"TICKER": shares, ...}',
+            )
+        with col2:
+            task_templates = {
+                "Calculate total portfolio value": "Calculate the total value of my portfolio: {holdings}",
+                "Check for price alerts (>5% moves)": "Check if any positions in my portfolio have moved more than 5% today: {holdings}",
+                "Full portfolio analysis": "Analyze my portfolio: {holdings}. Calculate the total value, check for significant price movements, and provide a summary with recommendations.",
+                "Single stock price": "What is the current price of AAPL?",
+                "Custom task": "",
+            }
+            template_choice = st.selectbox("Task template", list(task_templates.keys()))
+
+        task_default = task_templates[template_choice]
+        if "{holdings}" in task_default:
+            task_default = task_default.replace("{holdings}", holdings_input)
+
+        task_input = st.text_area(
+            "Task for agent",
+            value=task_default,
+            height=100,
+            help="Describe what you want the agent to do. It will figure out which tools to call.",
+        )
+
+        use_guardrails = st.checkbox("Apply FinancialGuardrails (Layer 1)", value=True,
+                                     help="Validates input for PII/injection and output for compliance disclaimers")
+
+        if st.button("▶ Run Agent", type="primary", disabled=not task_input.strip()):
+            with st.spinner("Agent is reasoning... this may take 30–90 seconds"):
+                try:
+                    agent = PortfolioReActAgent(model="gpt-4o")
+                    if use_guardrails:
+                        executor = SafeAgentExecutor(agent)
+                        result = executor.run(task_input)
+                    else:
+                        result = agent.run(task_input)
+                        result["status"] = "success"
+
+                    st.session_state["l6_last_result"] = result
+                except Exception as e:
+                    st.error(f"Agent error: {e}")
+                    result = None
+
+        if "l6_last_result" in st.session_state:
+            result = st.session_state["l6_last_result"]
+
+            if result.get("status") == "blocked":
+                st.error(f"🚫 {result['message']}")
+            elif result.get("status") == "error":
+                st.error(f"❌ {result['message']}")
+            else:
+                st.success("✅ Agent completed")
+
+                # ReAct trace
+                steps = result.get("steps", [])
+                if steps:
+                    with st.expander(f"🔍 ReAct Trace — {len(steps)} step(s)", expanded=True):
+                        for i, step in enumerate(steps, 1):
+                            st.markdown(f"**Step {i}**")
+                            # Thought lines
+                            thought_lines = step["thought_and_action"].split("\n")
+                            for line in thought_lines:
+                                if line.startswith("Thought:") or line.startswith("Action:") or line.startswith("Action Input:"):
+                                    st.markdown(f"`{line}`")
+                                elif line.strip():
+                                    st.markdown(line)
+                            st.markdown(f"**Observation:** {step['observation']}")
+                            if i < len(steps):
+                                st.divider()
+
+                st.markdown("### Final Answer")
+                st.markdown(result["output"])
+                st.caption(f"Completed in {result.get('iterations', 0)} tool call(s)")
+
+    # ── Tab 2: Evaluation ─────────────────────────────────────────────────────
+    with tab_eval:
+        st.subheader("Agent Evaluation")
+        st.caption("Runs 4 predefined test cases and measures accuracy (keyword match) and average tool-call steps.")
+
+        st.info("Each test case calls the live agent — this will take **3–5 minutes** and costs ~$0.10–0.20 in API calls.")
+
+        col_a, col_b = st.columns([2, 1])
+        with col_a:
+            st.markdown("**Test cases:**")
+            evaluator = AgentEvaluator()
+            for i, tc in enumerate(AgentEvaluator.TEST_CASES, 1):
+                st.markdown(f"{i}. {tc['label']}")
+        with col_b:
+            run_eval = st.button("▶ Run Evaluation", type="primary")
+
+        if run_eval:
+            with st.spinner("Running all 4 test cases..."):
+                try:
+                    agent = PortfolioReActAgent(model="gpt-4o")
+                    eval_results = evaluator.evaluate(agent)
+                    st.session_state["l6_eval_results"] = eval_results
+                except Exception as e:
+                    st.error(f"Evaluation error: {e}")
+
+        if "l6_eval_results" in st.session_state:
+            ev = st.session_state["l6_eval_results"]
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Accuracy", f"{ev['accuracy']:.0%}", f"{ev['passed']}/{ev['total']} passed")
+            m2.metric("Avg Steps", f"{ev['avg_steps']:.1f}")
+            m3.metric("Test Cases", ev["total"])
+
+            st.divider()
+            for r in ev["results"]:
+                status = "✅" if r["correct"] else ("❌" if not r["error"] else "⚠️")
+                with st.expander(f"{status} {r['label']} — {r['iterations']} step(s)"):
+                    st.markdown(f"**Input:** {r['input']}")
+                    if r["error"]:
+                        st.error(r["error"])
+                    else:
+                        st.markdown(f"**Output:** {r['output']}")
+
+    # ── Tab 3: Tools Reference ────────────────────────────────────────────────
+    with tab_tools:
+        st.subheader("Available Tools")
+        st.caption("The agent autonomously decides which tool to call and when.")
+
+        for tool_name, description, example_input, source_fn in [
+            (
+                "GetStockPrice",
+                "Fetches the current closing price for a single ticker via yfinance.",
+                "`AAPL`",
+                "core/react_agent.py → get_stock_price()",
+            ),
+            (
+                "GetPortfolioValue",
+                "Calculates total portfolio value — line-by-line breakdown plus grand total.",
+                '`{"AAPL": 100, "MSFT": 50}`',
+                "core/react_agent.py → get_portfolio_value()",
+            ),
+            (
+                "CheckPortfolioAlerts",
+                "Compares yesterday's close to today's. Flags any position that moved >5%.",
+                '`{"AAPL": 100, "TSLA": 30}`',
+                "core/react_agent.py → check_portfolio_alerts()",
+            ),
+        ]:
+            with st.expander(f"🔧 {tool_name}"):
+                st.markdown(f"**Description:** {description}")
+                st.markdown(f"**Example input:** {example_input}")
+                st.markdown(f"**Source:** `{source_fn}`")
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SPECIAL SITUATIONS LAB

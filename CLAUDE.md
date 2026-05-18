@@ -33,7 +33,8 @@ No build step, lint config, or test suite exists. The running app is the artifac
 | 3 | ✅ BUILT | `"rag"` | 📄 Layer 3 — Document RAG |
 | 4 | ✅ BUILT | `"finetune"` | 🔬 Layer 4 — Fine-Tuning & Evaluation |
 | 5 | ✅ BUILT | `"responsible_ai"` | 🧭 Layer 5 — Responsible AI & Safety |
-| 6–10 | 🔜 | follow same pattern | — |
+| 6 | ✅ BUILT | `"agents"` | 🤖 Layer 6 — Autonomous ReAct Agents |
+| 7–10 | 🔜 | follow same pattern | — |
 
 ---
 
@@ -52,7 +53,7 @@ Adding a new layer means:
 ## CRITICAL CODING RULES — Always Follow
 
 1. **Navigation uses named `active_layer` strings.**
-   - ✅ `st.session_state.active_layer == "guardrails"` / `"portfolio"` / `"rag"` / `"finetune"` / `"responsible_ai"`
+   - ✅ `st.session_state.active_layer == "guardrails"` / `"portfolio"` / `"rag"` / `"finetune"` / `"responsible_ai"` / `"agents"`
    - ❌ Never `tab1`, `tab2`, or `st.tabs()`
 
 2. **Classes must match notebook source exactly.**
@@ -292,15 +293,35 @@ UI tabs: PII Scanner · Output Compliance · Bias Detector · Audit Log
 
 ---
 
-## Layer 6 — Next Layer (Autonomous ReAct Agents)
+## Layer 6 — Autonomous ReAct Agents (BUILT)
 
 **Navigation value:** `"agents"` — label "🤖 Layer 6 — Autonomous ReAct Agents"
 
-Planned: LangChain agents · tool use · portfolio monitor *(Week 6)*
+Source: `week6_capstone`. Classes live in `core/react_agent.py`.
+
+```python
+class PortfolioReActAgent   # LangChain create_react_agent + AgentExecutor, 3 tools, max 10 iterations
+class SafeAgentExecutor     # wraps PortfolioReActAgent with FinancialGuardrails input/output checks
+class AgentEvaluator        # runs 4 test cases, returns accuracy + avg_steps
+```
+
+Tools: `GetStockPrice` · `GetPortfolioValue` · `CheckPortfolioAlerts` (all yfinance-based)
+
+UI tabs: Agent Runner · Evaluation · Tools Reference
+
+Dependencies added: `langchain>=0.3.0`, `langchain-openai>=0.2.0`, `langchain-community>=0.3.0`
+
+---
+
+## Layer 7 — Next Layer (Multi-Agent Collaboration)
+
+**Navigation value:** `"multi_agent"` — label "🤝 Layer 7 — Multi-Agent Collaboration"
+
+Planned: CrewAI · 4 specialized agents · Research → Risk → Performance → Portfolio Manager *(Week 7)*
 
 Adding it follows the same pattern as all prior layers:
-1. Add a sidebar button setting `st.session_state.active_layer = "agents"`
-2. Add a corresponding `if st.session_state.active_layer == "agents":` UI block
+1. Add a sidebar button setting `st.session_state.active_layer = "multi_agent"`
+2. Add a corresponding `if st.session_state.active_layer == "multi_agent":` UI block
 
 ---
 
