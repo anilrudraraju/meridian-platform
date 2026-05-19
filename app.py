@@ -59,7 +59,7 @@ if "active_layer" not in st.session_state:
 # ── Sidebar ────────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("## 📊 Meridian Intelligence Platform")
-    st.markdown("*Global Fiscal Group — Capstone*")
+    st.caption(f"*Global Fiscal Group — Capstone* · `{APP_VERSION}`")
     st.divider()
     try:
         api_key = st.secrets["OPENAI_API_KEY"]
@@ -114,7 +114,6 @@ with st.sidebar:
     # Progress indicator
     layers_done = 8
     st.progress(layers_done / 10, text=f"Progress: {layers_done}/10 layers built")
-    st.caption(f"v{APP_VERSION}")
 
 def _clear_for_new_company(new_ticker: str) -> None:
     """If new_ticker is different from already-loaded companies, wipe all state and start fresh.
