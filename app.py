@@ -1846,16 +1846,73 @@ check_drift ──► [drift > 5%?]
 
     can_run = len(portfolio) > 0 and len(target_allocation) > 0
 
+    _NODE_ICONS = {
+        "check_drift":     "📐",
+        "generate_trades": "📋",
+        "optimize_tax":    "🧾",
+        "check_approval":  "🔍",
+        "execute_trades":  "✅",
+        "no_rebalance":    "🟢",
+        "rejection":       "❌",
+    }
+
     if st.button("▶ Run Rebalancing Workflow", type="primary", disabled=not can_run):
-        with st.spinner("Running workflow..."):
+        with st.status("⚙️ Running rebalancing workflow...", expanded=True) as wf_status:
+
+            def on_node(node_name, updates, state):
+                icon = _NODE_ICONS.get(node_name, "⚙️")
+                if node_name == "check_drift":
+                    drift = state.get("drift", 0)
+                    total = state.get("total_value", 0)
+                    st.write(f"{icon} **Drift Analysis** — {drift:.2%} drift | Portfolio ${total:,.0f}")
+                    curr = state.get("current_allocation", {})
+                    tgt  = state.get("target_allocation", {})
+                    for ticker in sorted(tgt):
+                        c = curr.get(ticker, 0)
+                        t = tgt[ticker]
+                        gap = c - t
+                        arrow = "▲" if gap > 0 else "▼"
+                        st.caption(f"  {ticker}: {c:.1%} actual vs {t:.1%} target  ({arrow}{abs(gap):.1%} off)")
+                elif node_name == "generate_trades":
+                    trades = state.get("trades", [])
+                    total_tv = state.get("total_trade_value", 0)
+                    st.write(f"{icon} **Trade Generation** — {len(trades)} trades | Total ${total_tv:,.0f}")
+                    for t in trades:
+                        dot = "🟢" if t["action"] == "buy" else "🔴"
+                        st.caption(f"  {dot} {t['action'].upper()} {t['ticker']} ${t['value']:,.0f}")
+                elif node_name == "optimize_tax":
+                    tax = state.get("tax_impact", 0)
+                    st.write(f"{icon} **Tax Optimisation** — Est. tax impact ${tax:,.0f}")
+                elif node_name == "check_approval":
+                    requires = state.get("requires_approval", False)
+                    total_tv = state.get("total_trade_value", 0)
+                    threshold = state.get("approval_threshold", 1_000_000)
+                    if requires:
+                        st.write(f"{icon} **Approval Gate** — ${total_tv:,.0f} exceeds ${threshold:,.0f} threshold ⚠️ — pausing for review")
+                    else:
+                        st.write(f"{icon} **Approval Gate** — ${total_tv:,.0f} below ${threshold:,.0f} threshold ✅ — proceeding")
+                elif node_name == "execute_trades":
+                    n = len(state.get("trades", []))
+                    st.write(f"{icon} **Executing {n} trade(s)** — complete")
+                elif node_name == "no_rebalance":
+                    drift = state.get("drift", 0)
+                    st.write(f"{icon} **No Rebalancing Needed** — {drift:.2%} drift is within 5% threshold")
+                elif node_name == "rejection":
+                    st.write(f"{icon} **Rejected** — no trades executed")
+
             try:
                 wf = RebalancingWorkflow()
                 thread_id = f"l8_{datetime.now().strftime('%H%M%S%f')}"
                 st.session_state["l8_workflow"] = wf
                 st.session_state["l8_thread_id"] = thread_id
-                result = wf.analyze(portfolio, target_allocation, approval_threshold, thread_id)
+                result = wf.analyze(portfolio, target_allocation, approval_threshold, thread_id, on_node=on_node)
                 st.session_state["l8_result"] = result
+                if result.get("status") == "pending_approval":
+                    wf_status.update(label="⚠️ Workflow paused — awaiting human approval", state="running")
+                else:
+                    wf_status.update(label="✅ Workflow complete", state="complete")
             except Exception as e:
+                wf_status.update(label="❌ Workflow error", state="error")
                 st.error(f"Workflow error: {e}")
                 st.session_state.pop("l8_result", None)
 

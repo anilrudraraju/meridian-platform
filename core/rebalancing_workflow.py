@@ -3,7 +3,7 @@ core/rebalancing_workflow.py — Layer 8: Stateful Portfolio Rebalancing with La
 Source: week8_capstone
 Framework: LangGraph StateGraph with conditional edges + human-in-the-loop interrupt
 """
-from typing import TypedDict, List, Annotated, Optional
+from typing import TypedDict, List, Annotated, Optional, Callable
 import operator
 
 
@@ -228,16 +228,30 @@ class RebalancingWorkflow:
         target_allocation: dict,
         approval_threshold: float = 1_000_000,
         thread_id: str = "default",
+        on_node: Optional[Callable] = None,
     ) -> dict:
         """
         Phase 1: run the workflow. If approval is needed the graph pauses
         before human_approval and returns with status='pending_approval'.
-        Otherwise runs to completion.
+        on_node(node_name, updates, accumulated_state) is called after each node.
         """
         config = {"configurable": {"thread_id": thread_id}}
         initial = self._initial_state(portfolio, target_allocation, approval_threshold)
-        result = dict(self._app.invoke(initial, config))
-        # Detect interrupted state: status still 'pending' + approval flag set
+        accumulated = dict(initial)
+
+        for chunk in self._app.stream(initial, config, stream_mode="updates"):
+            for node_name, updates in chunk.items():
+                for key, value in updates.items():
+                    if key == "messages" and isinstance(value, list):
+                        accumulated["messages"] = accumulated.get("messages", []) + value
+                    else:
+                        accumulated[key] = value
+                if on_node:
+                    on_node(node_name, updates, dict(accumulated))
+
+        # Read persisted final state from checkpointer
+        snapshot = self._app.get_state(config)
+        result = dict(snapshot.values)
         if result.get("status") == "pending" and result.get("requires_approval"):
             result["status"] = "pending_approval"
         return result
