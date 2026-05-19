@@ -35,6 +35,7 @@ from core.rag import (
 from core.evaluation import FinancialEvaluator, BASE_MODEL, FINE_TUNED_MODEL, load_evaluator
 from core.react_agent import PortfolioReActAgent, SafeAgentExecutor, AgentEvaluator
 from core.crew_agents import PortfolioAnalysisCrew
+from core.rebalancing_workflow import RebalancingWorkflow
 from core.chunking import (
     get_chunking_config, _parse_filename_metadata, _detect_fiscal_year_end,
     _detect_quarter_from_text, _split_into_sections, _chunk_by_paragraphs,
@@ -81,6 +82,7 @@ with st.sidebar:
         ("✅ Layer 5 — Responsible AI & Safety",     "responsible_ai","PII scanner · bias detection · audit logging"),
         ("✅ Layer 6 — Autonomous ReAct Agents",     "agents",        "OpenAI tool-calling · ReAct loop · portfolio monitor"),
         ("✅ Layer 7 — Multi-Agent Collaboration",   "multi_agent",   "CrewAI · Research + Risk + Portfolio Manager agents"),
+        ("✅ Layer 8 — Stateful Rebalancing",        "rebalancing",   "LangGraph · drift detection · tax optimisation · approval gate"),
     ]:
         if st.button(label, use_container_width=True,
                      type="primary" if st.session_state.active_layer == key else "secondary"):
@@ -90,9 +92,8 @@ with st.sidebar:
 
     st.divider()
 
-    # Coming soon — Layers 8-10
+    # Coming soon — Layers 9-10
     for layer, caption in [
-        ("🔜 **Layer 8** — Stateful Workflow Automation",  "LangGraph · rebalancing state machine · human-in-loop *(Week 8)*"),
         ("🔜 **Layer 9** — Agent Communication & Consensus","MessageBus · investment committee debate · voting *(Week 9)*"),
         ("🔜 **Layer 10** — Integrated System + Dashboard","All layers unified · advisor workstation · client portal *(Week 10)*"),
     ]:
@@ -108,7 +109,7 @@ with st.sidebar:
 
     st.divider()
     # Progress indicator
-    layers_done = 7
+    layers_done = 8
     st.progress(layers_done / 10, text=f"Progress: {layers_done}/10 layers built")
 
 def _clear_for_new_company(new_ticker: str) -> None:
@@ -1721,6 +1722,215 @@ Tasks run **sequentially**: each agent's output becomes context for the next.
                     "Senior Portfolio Manager": "💼"}.get(ao["agent"], "🤖")
             with st.expander(f"{icon} {ao['agent']}", expanded=False):
                 st.markdown(ao["output"])
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# LAYER 8 — STATEFUL REBALANCING WORKFLOW (LangGraph)
+# ══════════════════════════════════════════════════════════════════════════════
+if st.session_state.active_layer == "rebalancing":
+    import pandas as pd
+
+    st.title("⚖️ Layer 8 — Stateful Rebalancing Workflow")
+    st.caption("LangGraph state machine: drift detection → trade generation → tax optimisation → human approval gate")
+
+    with st.expander("ℹ️ How this works", expanded=False):
+        st.markdown("""
+**Stateful workflows** route through a graph of nodes based on intermediate results — enabling IF/THEN branching and loops that a single agent cannot do.
+
+```
+check_drift ──► [drift > 5%?]
+    YES ──► generate_trades ──► optimize_tax ──► check_approval
+                                                      │
+                                        [trade > threshold?]
+                                          YES ──► ⏸ HUMAN APPROVAL GATE
+                                                   │
+                                             [approved?]
+                                      YES ──► execute_trades ──► ✅
+                                      NO  ──► rejected        ──► ❌
+                                          NO  ──► execute_trades ──► ✅
+    NO  ──► no_action_needed ──► ✅
+```
+""")
+
+    # ── Presets ────────────────────────────────────────────────────────────────
+    _L8_PRESETS = {
+        "Low drift (no rebalance)": {
+            "portfolio":   {"AAPL": 102_000, "MSFT": 84_000, "GOOGL": 84_000, "AMZN": 67_000},
+            "target":      {"AAPL": 0.30, "MSFT": 0.25, "GOOGL": 0.25, "AMZN": 0.20},
+        },
+        "High drift (auto rebalance)": {
+            "portfolio":   {"AAPL": 200_000, "MSFT": 100_000, "GOOGL": 50_000, "AMZN": 50_000},
+            "target":      {"AAPL": 0.30, "MSFT": 0.30, "GOOGL": 0.20, "AMZN": 0.20},
+        },
+        "Large portfolio (needs approval)": {
+            "portfolio":   {"AAPL": 3_000_000, "MSFT": 1_500_000, "GOOGL": 800_000, "AMZN": 700_000},
+            "target":      {"AAPL": 0.30, "MSFT": 0.30, "GOOGL": 0.20, "AMZN": 0.20},
+        },
+    }
+
+    def _preset_to_dfs(preset):
+        pdf = pd.DataFrame(
+            [{"Ticker": t, "Current Value ($)": v} for t, v in preset["portfolio"].items()]
+        )
+        tdf = pd.DataFrame(
+            [{"Ticker": t, "Target (%)" : round(w * 100)} for t, w in preset["target"].items()]
+        )
+        return pdf, tdf
+
+    if "l8_portfolio_df" not in st.session_state:
+        p, t = _preset_to_dfs(_L8_PRESETS["High drift (auto rebalance)"])
+        st.session_state["l8_portfolio_df"] = p
+        st.session_state["l8_target_df"] = t
+
+    col_p, col_btn, col_t = st.columns([3, 1, 3])
+
+    with col_btn:
+        st.markdown("**Presets**")
+        for name in _L8_PRESETS:
+            if st.button(name, use_container_width=True):
+                p, t = _preset_to_dfs(_L8_PRESETS[name])
+                st.session_state["l8_portfolio_df"] = p
+                st.session_state["l8_target_df"] = t
+                st.rerun()
+
+    with col_p:
+        st.markdown("**Current Portfolio**")
+        portfolio_df = st.data_editor(
+            st.session_state["l8_portfolio_df"],
+            num_rows="dynamic", use_container_width=True,
+            column_config={
+                "Ticker": st.column_config.TextColumn("Ticker", width="small"),
+                "Current Value ($)": st.column_config.NumberColumn("Value ($)", min_value=0, step=1000, format="$%d"),
+            }, key="l8_portfolio_editor",
+        )
+        st.session_state["l8_portfolio_df"] = portfolio_df
+
+    with col_t:
+        st.markdown("**Target Allocation**")
+        target_df = st.data_editor(
+            st.session_state["l8_target_df"],
+            num_rows="dynamic", use_container_width=True,
+            column_config={
+                "Ticker": st.column_config.TextColumn("Ticker", width="small"),
+                "Target (%)": st.column_config.NumberColumn("Target (%)", min_value=0, max_value=100, step=1, format="%.0f%%"),
+            }, key="l8_target_editor",
+        )
+        st.session_state["l8_target_df"] = target_df
+        total_target = float(target_df["Target (%)"].sum())
+        if abs(total_target - 100) < 0.5:
+            st.success(f"Total: {total_target:.0f}% ✅")
+        else:
+            st.warning(f"Total: {total_target:.0f}% — will be normalised")
+
+    approval_threshold = st.slider(
+        "Approval threshold — trades above this value require human sign-off",
+        min_value=10_000, max_value=5_000_000, value=1_000_000, step=10_000,
+        format="$%d",
+    )
+
+    # Parse inputs
+    port_valid = portfolio_df[
+        portfolio_df["Ticker"].notna() & (portfolio_df["Ticker"].str.strip() != "") &
+        portfolio_df["Current Value ($)"].notna() & (portfolio_df["Current Value ($)"] > 0)
+    ]
+    tgt_valid = target_df[
+        target_df["Ticker"].notna() & (target_df["Ticker"].str.strip() != "") &
+        target_df["Target (%)"].notna() & (target_df["Target (%)"] > 0)
+    ]
+    portfolio = {r["Ticker"].strip().upper(): float(r["Current Value ($)"]) for _, r in port_valid.iterrows()}
+    tgt_sum = float(tgt_valid["Target (%)"].sum())
+    target_allocation = {
+        r["Ticker"].strip().upper(): float(r["Target (%)"]) / tgt_sum
+        for _, r in tgt_valid.iterrows()
+    } if tgt_sum > 0 else {}
+
+    can_run = len(portfolio) > 0 and len(target_allocation) > 0
+
+    if st.button("▶ Run Rebalancing Workflow", type="primary", disabled=not can_run):
+        with st.spinner("Running workflow..."):
+            try:
+                wf = RebalancingWorkflow()
+                thread_id = f"l8_{datetime.now().strftime('%H%M%S%f')}"
+                st.session_state["l8_workflow"] = wf
+                st.session_state["l8_thread_id"] = thread_id
+                result = wf.analyze(portfolio, target_allocation, approval_threshold, thread_id)
+                st.session_state["l8_result"] = result
+            except Exception as e:
+                st.error(f"Workflow error: {e}")
+                st.session_state.pop("l8_result", None)
+
+    # ── Results ────────────────────────────────────────────────────────────────
+    if "l8_result" in st.session_state:
+        result = st.session_state["l8_result"]
+        status = result.get("status", "")
+
+        st.markdown("---")
+
+        # ── Pending approval gate ──────────────────────────────────────────────
+        if status == "pending_approval":
+            st.warning("⚠️ Human Approval Required")
+            trades = result.get("trades", [])
+            total_trade = result.get("total_trade_value", 0)
+            tax = result.get("tax_impact", 0)
+
+            col_m1, col_m2, col_m3 = st.columns(3)
+            col_m1.metric("Portfolio Value", f"${result.get('total_value', 0):,.0f}")
+            col_m2.metric("Total Trade Value", f"${total_trade:,.0f}")
+            col_m3.metric("Est. Tax Impact", f"${tax:,.0f}")
+
+            st.markdown("**Proposed Trades**")
+            trades_df = pd.DataFrame(trades)[["ticker", "action", "value", "current_value", "target_value"]]
+            trades_df.columns = ["Ticker", "Action", "Trade Value ($)", "Current ($)", "Target ($)"]
+            st.dataframe(trades_df.style.format({"Trade Value ($)": "${:,.0f}", "Current ($)": "${:,.0f}", "Target ($)": "${:,.0f}"}), use_container_width=True)
+
+            col_a, col_r = st.columns(2)
+            with col_a:
+                if st.button("✅ Approve Trades", type="primary", use_container_width=True):
+                    with st.spinner("Executing trades..."):
+                        wf = st.session_state["l8_workflow"]
+                        tid = st.session_state["l8_thread_id"]
+                        result = wf.complete(True, tid)
+                        st.session_state["l8_result"] = result
+                    st.rerun()
+            with col_r:
+                if st.button("❌ Reject Trades", use_container_width=True):
+                    with st.spinner("Rejecting..."):
+                        wf = st.session_state["l8_workflow"]
+                        tid = st.session_state["l8_thread_id"]
+                        result = wf.complete(False, tid)
+                        st.session_state["l8_result"] = result
+                    st.rerun()
+
+        # ── Completed / rejected / no action ──────────────────────────────────
+        else:
+            status_display = {
+                "completed":       ("✅ Rebalancing Complete", "success"),
+                "no_action_needed":("✅ No Rebalancing Needed", "success"),
+                "rejected":        ("❌ Rebalancing Rejected", "error"),
+            }.get(status, ("ℹ️ " + status, "info"))
+
+            getattr(st, status_display[1])(status_display[0])
+
+            if result.get("trades"):
+                col_m1, col_m2, col_m3 = st.columns(3)
+                col_m1.metric("Portfolio Value", f"${result.get('total_value', 0):,.0f}")
+                col_m2.metric("Drift", f"{result.get('drift', 0):.2%}")
+                col_m3.metric("Tax Estimate", f"${result.get('tax_impact', 0):,.0f}")
+
+                if status == "completed":
+                    st.markdown("**Executed Trades**")
+                    trades_df = pd.DataFrame(result["trades"])[["ticker", "action", "value"]]
+                    trades_df.columns = ["Ticker", "Action", "Value ($)"]
+                    st.dataframe(trades_df.style.format({"Value ($)": "${:,.0f}"}), use_container_width=True)
+            else:
+                col_m1, col_m2 = st.columns(2)
+                col_m1.metric("Portfolio Value", f"${result.get('total_value', 0):,.0f}")
+                col_m2.metric("Drift", f"{result.get('drift', 0):.2%}")
+
+        # ── Audit trail ────────────────────────────────────────────────────────
+        st.markdown("**🗒️ Audit Trail**")
+        for msg in result.get("messages", []):
+            st.markdown(f"- {msg}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
