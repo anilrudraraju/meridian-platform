@@ -158,6 +158,7 @@ _TOOL_SCHEMAS = [
 _SYSTEM_PROMPT = (
     "You are a portfolio monitoring AI agent for Meridian Wealth Partners. "
     "Your job is to analyze portfolios, identify issues, and provide clear recommendations. "
+    "Before each tool call, briefly explain your reasoning in 1-2 sentences (what you are about to do and why). "
     "Always use at least one tool before giving your final answer. "
     "Be specific and cite actual numbers in your response."
 )
@@ -216,6 +217,9 @@ class PortfolioReActAgent:
                 for tc in msg.tool_calls
             ]})
 
+            # thought is the model's text content before tool calls
+            thought = (msg.content or "").strip()
+
             # Execute each tool call
             for tc in msg.tool_calls:
                 fn_name = tc.function.name
@@ -233,6 +237,7 @@ class PortfolioReActAgent:
                     observation = fn(arg_val)
 
                 steps.append({
+                    "thought": thought,
                     "tool": fn_name,
                     "tool_input": fn_args,
                     "observation": observation,

@@ -1491,9 +1491,11 @@ Each iteration = one GPT-4o API call. The agent runs up to 10 iterations before 
                     with st.expander(f"🔍 ReAct Trace — {len(steps)} step(s)", expanded=True):
                         for i, step in enumerate(steps, 1):
                             st.markdown(f"**Step {i}**")
-                            st.markdown(f"`Action: {step['tool']}`")
-                            st.markdown(f"`Action Input: {json.dumps(step['tool_input'])}`")
-                            st.markdown(f"**Observation:** {step['observation']}")
+                            if step.get("thought"):
+                                st.markdown(f"💭 **Thought:** {step['thought']}")
+                            st.markdown(f"🔧 **Action:** `{step['tool']}`")
+                            st.markdown(f"📥 **Input:** `{json.dumps(step['tool_input'])}`")
+                            st.markdown(f"📤 **Observation:** {step['observation']}")
                             if i < len(steps):
                                 st.divider()
 
