@@ -178,16 +178,29 @@ class PortfolioReActAgent:
         self._model = model
         self._max_iterations = 10
 
+    # gpt-4o pricing per million tokens
+    _COST_PER_M = {"input": 2.50, "output": 10.00}
+
+    def _compute_cost(self, prompt_tokens: int, completion_tokens: int) -> float:
+        return (
+            prompt_tokens * self._COST_PER_M["input"] / 1_000_000
+            + completion_tokens * self._COST_PER_M["output"] / 1_000_000
+        )
+
     def run(self, task: str) -> dict:
         """
         Run the agent on a task string.
-        Returns {"output": str, "steps": list[dict], "iterations": int}
+        Returns {"output": str, "steps": list[dict], "iterations": int,
+                 "prompt_tokens": int, "completion_tokens": int, "cost_usd": float}
         """
+        from core.cost import log_call
         messages = [
             {"role": "system", "content": _SYSTEM_PROMPT},
             {"role": "user", "content": task},
         ]
         steps = []
+        total_prompt_tokens = 0
+        total_completion_tokens = 0
 
         for _ in range(self._max_iterations):
             response = self._client.chat.completions.create(
@@ -198,13 +211,28 @@ class PortfolioReActAgent:
                 temperature=0,
             )
             msg = response.choices[0].message
+            usage = response.usage
+            total_prompt_tokens += usage.prompt_tokens
+            total_completion_tokens += usage.completion_tokens
 
             # No tool calls — agent is done
             if not msg.tool_calls:
+                cost_usd = self._compute_cost(total_prompt_tokens, total_completion_tokens)
+                log_call(
+                    model=self._model,
+                    prompt_tokens=total_prompt_tokens,
+                    completion_tokens=total_completion_tokens,
+                    cost_usd=cost_usd,
+                    technique="react",
+                    caller="PortfolioReActAgent",
+                )
                 return {
                     "output": msg.content or "",
                     "steps": steps,
                     "iterations": len(steps),
+                    "prompt_tokens": total_prompt_tokens,
+                    "completion_tokens": total_completion_tokens,
+                    "cost_usd": cost_usd,
                 }
 
             # Append assistant message with tool calls
@@ -249,9 +277,25 @@ class PortfolioReActAgent:
                     "content": observation,
                 })
 
-        # Hit max iterations — return whatever we have
+        # Hit max iterations — log and return whatever we have
+        cost_usd = self._compute_cost(total_prompt_tokens, total_completion_tokens)
+        log_call(
+            model=self._model,
+            prompt_tokens=total_prompt_tokens,
+            completion_tokens=total_completion_tokens,
+            cost_usd=cost_usd,
+            technique="react",
+            caller="PortfolioReActAgent",
+        )
         last_content = messages[-1].get("content", "Max iterations reached without final answer.")
-        return {"output": last_content, "steps": steps, "iterations": len(steps)}
+        return {
+            "output": last_content,
+            "steps": steps,
+            "iterations": len(steps),
+            "prompt_tokens": total_prompt_tokens,
+            "completion_tokens": total_completion_tokens,
+            "cost_usd": cost_usd,
+        }
 
 
 # ── Safe wrapper ──────────────────────────────────────────────────────────────

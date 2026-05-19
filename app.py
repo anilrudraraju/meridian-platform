@@ -1501,7 +1501,14 @@ Each iteration = one GPT-4o API call. The agent runs up to 10 iterations before 
 
                 st.markdown("### Final Answer")
                 st.markdown(result["output"])
-                st.caption(f"Completed in {result.get('iterations', 0)} tool call(s)")
+                cost_usd = result.get("cost_usd", 0.0)
+                p_tok = result.get("prompt_tokens", 0)
+                c_tok = result.get("completion_tokens", 0)
+                st.caption(
+                    f"Completed in {result.get('iterations', 0)} tool call(s) · "
+                    f"{p_tok + c_tok:,} tokens ({p_tok:,} in / {c_tok:,} out) · "
+                    f"Cost: ${cost_usd:.4f}"
+                )
 
     # ── Tab 2: Evaluation ─────────────────────────────────────────────────────
     with tab_eval:
