@@ -1804,16 +1804,6 @@ check_drift ──► [drift > 5%?]
             }, key="l8_portfolio_editor",
         )
         st.session_state["l8_portfolio_df"] = portfolio_df
-        _total_val = float(portfolio_df["Current Value ($)"].fillna(0).sum())
-        if _total_val > 0:
-            _wlines = []
-            for _, _row in portfolio_df.iterrows():
-                _t = str(_row.get("Ticker", "") or "").strip()
-                _v = float(_row.get("Current Value ($)", 0) or 0)
-                if _t and _v > 0:
-                    _wlines.append(f"{_t} {_v/_total_val*100:.1f}%")
-            if _wlines:
-                st.caption("  ·  ".join(_wlines))
 
     with col_t:
         st.markdown("**Target Allocation**")
@@ -1831,6 +1821,19 @@ check_drift ──► [drift > 5%?]
             st.success(f"Total: {total_target:.0f}% ✅")
         else:
             st.warning(f"Total: {total_target:.0f}% — will be normalised")
+
+    # Weight breakdown — computed outside the column block so it always renders
+    _pf = st.session_state["l8_portfolio_df"]
+    _tv = float(_pf["Current Value ($)"].fillna(0).sum())
+    if _tv > 0:
+        _parts = []
+        for _, _r in _pf.iterrows():
+            _tk = str(_r.get("Ticker", "") or "").strip()
+            _vl = float(_r.get("Current Value ($)", 0) or 0)
+            if _tk and _tk.lower() != "nan" and _vl > 0:
+                _parts.append(f"**{_tk}** {_vl/_tv*100:.1f}%")
+        if _parts:
+            st.caption("Current weights: " + "  ·  ".join(_parts))
 
     approval_threshold = st.slider(
         "Approval threshold — trades above this value require human sign-off",
