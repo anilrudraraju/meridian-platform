@@ -1804,15 +1804,16 @@ check_drift ──► [drift > 5%?]
             }, key="l8_portfolio_editor",
         )
         st.session_state["l8_portfolio_df"] = portfolio_df
-        _total_val = portfolio_df["Current Value ($)"].fillna(0).sum()
+        _total_val = float(portfolio_df["Current Value ($)"].fillna(0).sum())
         if _total_val > 0:
-            _weights = portfolio_df.copy()
-            _weights = _weights[_weights["Current Value ($)"].fillna(0) > 0]
-            _weights["Weight (%)"] = (_weights["Current Value ($)"] / _total_val * 100).map("{:.1f}%".format)
-            st.dataframe(
-                _weights[["Ticker", "Weight (%)"]].reset_index(drop=True),
-                use_container_width=True, hide_index=True,
-            )
+            _wlines = []
+            for _, _row in portfolio_df.iterrows():
+                _t = str(_row.get("Ticker", "") or "").strip()
+                _v = float(_row.get("Current Value ($)", 0) or 0)
+                if _t and _v > 0:
+                    _wlines.append(f"{_t} {_v/_total_val*100:.1f}%")
+            if _wlines:
+                st.caption("  ·  ".join(_wlines))
 
     with col_t:
         st.markdown("**Target Allocation**")
