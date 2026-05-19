@@ -1617,6 +1617,8 @@ if st.session_state.active_layer == "multi_agent":
 Tasks run **sequentially**: each agent's output becomes context for the next.
 """)
 
+    import pandas as pd
+
     # ── Preset definitions ────────────────────────────────────────────────────
     _PRESETS = {
         "Tech heavy":  [("AAPL",20),("MSFT",20),("GOOGL",20),("NVDA",20),("META",20)],
