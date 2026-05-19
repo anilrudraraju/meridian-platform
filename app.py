@@ -2062,14 +2062,11 @@ if st.session_state.active_layer == "committee":
         key="l9_preset",
     )
 
-    if preset_choice == "Custom (write below)":
-        default_text = ""
-    else:
-        default_text = _L9_PRESETS[preset_choice]
+    if preset_choice != "Custom (write below)":
+        st.session_state["l9_proposal"] = _L9_PRESETS[preset_choice]
 
     proposal_text = st.text_area(
         "Proposal",
-        value=default_text,
         height=100,
         key="l9_proposal",
         placeholder="Describe the investment proposal the committee should debate...",
