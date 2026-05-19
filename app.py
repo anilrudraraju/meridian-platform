@@ -1804,11 +1804,12 @@ check_drift ──► [drift > 5%?]
         portfolio_df = st.data_editor(
             _pdf_display,
             num_rows="dynamic", use_container_width=True,
+            disabled=["Weight (%)"],
             column_config={
                 "Ticker": st.column_config.TextColumn("Ticker", width="small"),
                 "Current Value ($)": st.column_config.NumberColumn("Value ($)", min_value=0, step=1000, format="$%d"),
-                "Weight (%)": st.column_config.NumberColumn("Weight (%)", format="%.1f%%", disabled=True),
-            }, key="l8_portfolio_editor_v2",
+                "Weight (%)": st.column_config.NumberColumn("Weight (%)", format="%.1f%%"),
+            }, key="l8_portfolio_editor_v3",
         )
         st.session_state["l8_portfolio_df"] = portfolio_df[["Ticker", "Current Value ($)"]]
 
