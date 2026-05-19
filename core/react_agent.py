@@ -187,9 +187,11 @@ class PortfolioReActAgent:
             + completion_tokens * self._COST_PER_M["output"] / 1_000_000
         )
 
-    def run(self, task: str) -> dict:
+    def run(self, task: str, on_step=None) -> dict:
         """
         Run the agent on a task string.
+        on_step(thought, tool, observation) is called after each tool call — use it
+        to stream live status updates to the UI.
         Returns {"output": str, "steps": list[dict], "iterations": int,
                  "prompt_tokens": int, "completion_tokens": int, "cost_usd": float}
         """
@@ -271,6 +273,9 @@ class PortfolioReActAgent:
                     "observation": observation,
                 })
 
+                if on_step:
+                    on_step(thought, fn_name, observation)
+
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc.id,
@@ -311,7 +316,7 @@ class SafeAgentExecutor:
         self._agent = agent
         self._guardrails = FinancialGuardrails()
 
-    def run(self, user_input: str) -> dict:
+    def run(self, user_input: str, on_step=None) -> dict:
         in_check = self._guardrails.validate_input(user_input)
         if not in_check.passed:
             return {
@@ -322,7 +327,7 @@ class SafeAgentExecutor:
             }
 
         try:
-            result = self._agent.run(user_input)
+            result = self._agent.run(user_input, on_step=on_step)
         except Exception as e:
             return {"status": "error", "message": str(e), "steps": [], "iterations": 0}
 

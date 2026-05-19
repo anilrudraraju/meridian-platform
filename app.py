@@ -1460,20 +1460,33 @@ Each iteration = one GPT-4o API call. The agent runs up to 10 iterations before 
                                      help="Validates input for PII/injection and output for compliance disclaimers")
 
         if st.button("▶ Run Agent", type="primary", disabled=not task_input.strip()):
-            with st.spinner("Agent is reasoning... this may take 30–90 seconds"):
-                try:
-                    agent = PortfolioReActAgent(model="gpt-4o")
+            try:
+                agent = PortfolioReActAgent(model="gpt-4o")
+                with st.status("🤖 Agent is thinking...", expanded=True) as agent_status:
+                    def on_step(thought, tool, observation):
+                        if thought:
+                            st.write(f"💭 {thought}")
+                        st.write(f"🔧 Calling **{tool}**...")
+                        st.write(f"✅ Done — {observation[:120]}{'...' if len(observation) > 120 else ''}")
+
                     if use_guardrails:
                         executor = SafeAgentExecutor(agent)
-                        result = executor.run(task_input)
+                        result = executor.run(task_input, on_step=on_step)
                     else:
-                        result = agent.run(task_input)
+                        result = agent.run(task_input, on_step=on_step)
                         result["status"] = "success"
 
-                    st.session_state["l6_last_result"] = result
-                except Exception as e:
-                    st.error(f"Agent error: {e}")
-                    result = None
+                    if result.get("status") == "blocked":
+                        agent_status.update(label="🚫 Blocked by guardrails", state="error")
+                    elif result.get("status") == "error":
+                        agent_status.update(label="❌ Agent error", state="error")
+                    else:
+                        agent_status.update(label=f"✅ Done — {result.get('iterations', 0)} tool call(s)", state="complete")
+
+                st.session_state["l6_last_result"] = result
+            except Exception as e:
+                st.error(f"Agent error: {e}")
+                result = None
 
         if "l6_last_result" in st.session_state:
             result = st.session_state["l6_last_result"]
