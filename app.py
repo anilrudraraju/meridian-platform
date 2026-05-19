@@ -52,7 +52,7 @@ st.set_page_config(
 )
 
 if "active_layer" not in st.session_state:
-    st.session_state.active_layer = "portfolio"
+    st.session_state.active_layer = "guardrails"
 
 # ── Sidebar ────────────────────────────────────────────────────────────────────
 with st.sidebar:
