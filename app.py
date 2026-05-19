@@ -34,6 +34,7 @@ from core.rag import (
 )
 from core.evaluation import FinancialEvaluator, BASE_MODEL, FINE_TUNED_MODEL, load_evaluator
 from core.react_agent import PortfolioReActAgent, SafeAgentExecutor, AgentEvaluator
+from core.crew_agents import PortfolioAnalysisCrew
 from core.chunking import (
     get_chunking_config, _parse_filename_metadata, _detect_fiscal_year_end,
     _detect_quarter_from_text, _split_into_sections, _chunk_by_paragraphs,
@@ -73,12 +74,13 @@ with st.sidebar:
     st.markdown("**🏗️ Platform Layers**")
 
     for label, key, caption in [
-        ("✅ Layer 1 — Guardrails & Prompts",    "guardrails",    "FinancialPromptEngine · 5 techniques · FinancialGuardrails"),
-        ("✅ Layer 2 — Portfolio Dashboard",      "portfolio",     "MarketDataFetcher · yfinance · Live portfolio valuation"),
-        ("✅ Layer 3 — Document RAG",             "rag",           "DocumentProcessor · RAGSystem · EDGAR 10-K auto-fetch"),
-        ("✅ Layer 4 — Fine-Tuning & Evaluation", "finetune",      "FinancialEvaluator · base vs fine-tuned · compliance scoring"),
-        ("✅ Layer 5 — Responsible AI & Safety",  "responsible_ai","PII scanner · bias detection · audit logging"),
-        ("✅ Layer 6 — Autonomous ReAct Agents",   "agents",        "LangChain · ReAct loop · portfolio monitor · guardrails"),
+        ("✅ Layer 1 — Guardrails & Prompts",       "guardrails",    "FinancialPromptEngine · 5 techniques · FinancialGuardrails"),
+        ("✅ Layer 2 — Portfolio Dashboard",         "portfolio",     "MarketDataFetcher · yfinance · Live portfolio valuation"),
+        ("✅ Layer 3 — Document RAG",                "rag",           "DocumentProcessor · RAGSystem · EDGAR 10-K auto-fetch"),
+        ("✅ Layer 4 — Fine-Tuning & Evaluation",    "finetune",      "FinancialEvaluator · base vs fine-tuned · compliance scoring"),
+        ("✅ Layer 5 — Responsible AI & Safety",     "responsible_ai","PII scanner · bias detection · audit logging"),
+        ("✅ Layer 6 — Autonomous ReAct Agents",     "agents",        "OpenAI tool-calling · ReAct loop · portfolio monitor"),
+        ("✅ Layer 7 — Multi-Agent Collaboration",   "multi_agent",   "CrewAI · Research + Risk + Portfolio Manager agents"),
     ]:
         if st.button(label, use_container_width=True,
                      type="primary" if st.session_state.active_layer == key else "secondary"):
@@ -88,9 +90,8 @@ with st.sidebar:
 
     st.divider()
 
-    # Coming soon — Layers 7-10
+    # Coming soon — Layers 8-10
     for layer, caption in [
-        ("🔜 **Layer 7** — Multi-Agent Collaboration",     "CrewAI · Research + Risk + Performance + PM agents *(Week 7)*"),
         ("🔜 **Layer 8** — Stateful Workflow Automation",  "LangGraph · rebalancing state machine · human-in-loop *(Week 8)*"),
         ("🔜 **Layer 9** — Agent Communication & Consensus","MessageBus · investment committee debate · voting *(Week 9)*"),
         ("🔜 **Layer 10** — Integrated System + Dashboard","All layers unified · advisor workstation · client portal *(Week 10)*"),
@@ -107,7 +108,7 @@ with st.sidebar:
 
     st.divider()
     # Progress indicator
-    layers_done = 6
+    layers_done = 7
     st.progress(layers_done / 10, text=f"Progress: {layers_done}/10 layers built")
 
 def _clear_for_new_company(new_ticker: str) -> None:
@@ -1594,6 +1595,102 @@ Each iteration = one GPT-4o API call. The agent runs up to 10 iterations before 
                 st.markdown(f"**Description:** {description}")
                 st.markdown(f"**Example input:** {example_input}")
                 st.markdown(f"**Source:** `{source_fn}`")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# LAYER 7 — MULTI-AGENT COLLABORATION (CrewAI)
+# ══════════════════════════════════════════════════════════════════════════════
+if st.session_state.active_layer == "multi_agent":
+    st.title("🤝 Layer 7 — Multi-Agent Collaboration")
+    st.caption("Three specialised agents collaborate sequentially: Research Analyst → Risk Specialist → Portfolio Manager")
+
+    with st.expander("ℹ️ How this works", expanded=False):
+        st.markdown("""
+**Multi-agent systems** assign specialised roles to separate AI agents that each have their own tools, expertise, and objectives.
+
+| Agent | Role | Tool |
+|-------|------|------|
+| 📊 Research Analyst | Gathers price, valuation, and sector data for every holding | `GetStockData` (Yahoo Finance) |
+| ⚠️ Risk Specialist | Calculates volatility and correlation across the portfolio | `CalculatePortfolioRisk` (Yahoo Finance) |
+| 💼 Portfolio Manager | Synthesises both reports into client-ready recommendations | None — reasoning only |
+
+Tasks run **sequentially**: each agent's output becomes context for the next.
+""")
+
+    st.subheader("Portfolio Input")
+    col_input, col_presets = st.columns([3, 1])
+    with col_input:
+        portfolio_input = st.text_area(
+            "Enter portfolio holdings (comma-separated tickers)",
+            value="AAPL, MSFT, GOOGL, AMZN",
+            height=80,
+        )
+    with col_presets:
+        st.markdown("**Quick presets**")
+        if st.button("Tech heavy", use_container_width=True):
+            st.session_state["l7_portfolio"] = "AAPL, MSFT, GOOGL, NVDA, META"
+            st.rerun()
+        if st.button("Diversified", use_container_width=True):
+            st.session_state["l7_portfolio"] = "AAPL, JPM, JNJ, XOM, PG"
+            st.rerun()
+        if st.button("Growth", use_container_width=True):
+            st.session_state["l7_portfolio"] = "TSLA, NVDA, AMZN, NFLX"
+            st.rerun()
+
+    if "l7_portfolio" in st.session_state:
+        portfolio_input = st.session_state.pop("l7_portfolio")
+
+    if st.button("▶ Run Crew Analysis", type="primary", disabled=not portfolio_input.strip()):
+        try:
+            crew = PortfolioAnalysisCrew(model="gpt-4o")
+            with st.status("🤖 Agents working...", expanded=True) as crew_status:
+                st.write(f"📋 Portfolio: **{portfolio_input.strip()}**")
+                st.divider()
+
+                task_order = [
+                    "Financial Research Analyst",
+                    "Portfolio Risk Specialist",
+                    "Senior Portfolio Manager",
+                ]
+                task_icons = {
+                    "Financial Research Analyst": "📊",
+                    "Portfolio Risk Specialist": "⚠️",
+                    "Senior Portfolio Manager": "💼",
+                }
+                completed = []
+
+                def on_task(role, raw_output):
+                    icon = task_icons.get(role, "🤖")
+                    completed.append(role)
+                    st.write(f"{icon} **{role}** — complete ({len(completed)}/3)")
+                    preview = raw_output[:300].replace("\n", " ")
+                    if len(raw_output) > 300:
+                        preview += "..."
+                    st.caption(preview)
+
+                result = crew.run(portfolio_input.strip(), on_task=on_task)
+                crew_status.update(label="✅ All agents complete", state="complete")
+
+            st.session_state["l7_last_result"] = result
+
+        except Exception as e:
+            st.error(f"Crew error: {e}")
+
+    if "l7_last_result" in st.session_state:
+        result = st.session_state["l7_last_result"]
+
+        st.markdown("---")
+        st.subheader("📋 Final Recommendations")
+        st.markdown(result["output"])
+
+        st.markdown("---")
+        st.subheader("🔍 Individual Agent Reports")
+        for ao in result.get("agent_outputs", []):
+            icon = {"Financial Research Analyst": "📊",
+                    "Portfolio Risk Specialist": "⚠️",
+                    "Senior Portfolio Manager": "💼"}.get(ao["agent"], "🤖")
+            with st.expander(f"{icon} {ao['agent']}", expanded=False):
+                st.markdown(ao["output"])
 
 
 # ══════════════════════════════════════════════════════════════════════════════
