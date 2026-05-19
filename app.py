@@ -1729,7 +1729,6 @@ Tasks run **sequentially**: each agent's output becomes context for the next.
 # ══════════════════════════════════════════════════════════════════════════════
 if st.session_state.active_layer == "rebalancing":
     import pandas as pd
-    print("[L8] Layer 8 block entered")
 
     st.title("⚖️ Layer 8 — Stateful Rebalancing Workflow")
     st.caption("LangGraph state machine: drift detection → trade generation → tax optimisation → human approval gate")
@@ -1823,27 +1822,7 @@ check_drift ──► [drift > 5%?]
         else:
             st.warning(f"Total: {total_target:.0f}% — will be normalised")
 
-    print(f"[L8-DEBUG] portfolio_df type={type(portfolio_df)}, shape={portfolio_df.shape}, columns={list(portfolio_df.columns)}")
-    print(f"[L8-DEBUG] portfolio_df values:\n{portfolio_df.to_dict()}")
-    try:
-        _pf_rows = []
-        for _, r in portfolio_df.iterrows():
-            _tk = str(r.get("Ticker", "") or "").strip()
-            _vl_raw = r.get("Current Value ($)", None)
-            print(f"[L8-DEBUG] row ticker={_tk!r} val_raw={_vl_raw!r} type={type(_vl_raw)}")
-            _vl = float(_vl_raw or 0) if _vl_raw is not None else 0.0
-            if _tk and _tk.lower() != "nan" and _vl > 0:
-                _pf_rows.append((_tk, _vl))
-        print(f"[L8-DEBUG] _pf_rows={_pf_rows}")
-        if _pf_rows:
-            _pf_total = sum(v for _, v in _pf_rows)
-            _pf_weight_str = "   |   ".join(f"{t}: {v/_pf_total*100:.1f}%" for t, v in _pf_rows)
-            st.info(f"📊 Current weights — {_pf_weight_str}")
-        else:
-            st.warning("⚠️ Weight debug: _pf_rows is empty")
-    except Exception as _e:
-        print(f"[L8-DEBUG] Exception: {_e}")
-        st.warning(f"Weight calc error: {_e}")
+    _weight_slot = st.empty()   # placeholder — filled after portfolio dict is parsed
 
     approval_threshold = st.slider(
         "Approval threshold — trades above this value require human sign-off",
@@ -1866,6 +1845,12 @@ check_drift ──► [drift > 5%?]
         r["Ticker"].strip().upper(): float(r["Target (%)"]) / tgt_sum
         for _, r in tgt_valid.iterrows()
     } if tgt_sum > 0 else {}
+
+    # Fill weight slot — portfolio dict is proven correct (same source used for workflow)
+    if portfolio:
+        _pf_total = sum(portfolio.values())
+        _ws = "   |   ".join(f"{t}: {v / _pf_total * 100:.1f}%" for t, v in portfolio.items())
+        _weight_slot.info(f"📊 Current weights — {_ws}")
 
     can_run = len(portfolio) > 0 and len(target_allocation) > 0
 
