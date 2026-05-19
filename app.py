@@ -7,7 +7,7 @@ Classes match exactly what's in:
   - week3_capstone.ipynb: SearchResult, RAGResponse, DocumentProcessor, RAGSystem
 """
 
-APP_VERSION = "2026-05-19-v6"
+APP_VERSION = "2026-05-19-v7"
 
 import streamlit as st
 import os
@@ -38,6 +38,7 @@ from core.evaluation import FinancialEvaluator, BASE_MODEL, FINE_TUNED_MODEL, lo
 from core.react_agent import PortfolioReActAgent, SafeAgentExecutor, AgentEvaluator
 from core.crew_agents import PortfolioAnalysisCrew
 from core.rebalancing_workflow import RebalancingWorkflow
+from core.investment_committee import InvestmentCommittee
 from core.chunking import (
     get_chunking_config, _parse_filename_metadata, _detect_fiscal_year_end,
     _detect_quarter_from_text, _split_into_sections, _chunk_by_paragraphs,
@@ -85,6 +86,7 @@ with st.sidebar:
         ("✅ Layer 6 — Autonomous ReAct Agents",     "agents",        "OpenAI tool-calling · ReAct loop · portfolio monitor"),
         ("✅ Layer 7 — Multi-Agent Collaboration",   "multi_agent",   "CrewAI · Research + Risk + Portfolio Manager agents"),
         ("✅ Layer 8 — Stateful Rebalancing",        "rebalancing",   "LangGraph · drift detection · tax optimisation · approval gate"),
+        ("✅ Layer 9 — Investment Committee",        "committee",     "MessageBus · 3-round debate · Growth vs Value vs Risk · consensus vote"),
     ]:
         if st.button(label, use_container_width=True,
                      type="primary" if st.session_state.active_layer == key else "secondary"):
@@ -95,9 +97,8 @@ with st.sidebar:
 
     st.divider()
 
-    # Coming soon — Layers 9-10
+    # Coming soon — Layer 10
     for layer, caption in [
-        ("🔜 **Layer 9** — Agent Communication & Consensus","MessageBus · investment committee debate · voting *(Week 9)*"),
         ("🔜 **Layer 10** — Integrated System + Dashboard","All layers unified · advisor workstation · client portal *(Week 10)*"),
     ]:
         st.markdown(layer)
@@ -2004,6 +2005,155 @@ check_drift ──► [drift > 5%?]
         st.markdown("**🗒️ Audit Trail**")
         for msg in result.get("messages", []):
             st.markdown(f"- {msg}")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# LAYER 9 — INVESTMENT COMMITTEE
+# ══════════════════════════════════════════════════════════════════════════════
+if st.session_state.active_layer == "committee":
+    st.title("🏛️ Layer 9 — Investment Committee")
+    st.markdown(
+        "Three specialized agents debate an investment proposal through a structured "
+        "3-round protocol: **Initial Positions → Challenges → Final Vote**. "
+        "Each agent communicates via a shared **MessageBus** and votes independently."
+    )
+
+    # ── How it works ──────────────────────────────────────────────────────────
+    with st.expander("How it works", expanded=False):
+        col_a, col_b, col_c = st.columns(3)
+        col_a.markdown("**📈 Growth Specialist**\nAdvocates for high-growth, innovative companies. Prioritises TAM expansion and market leadership.")
+        col_b.markdown("**💰 Value Specialist**\nFollows the Buffett/Graham tradition. Focuses on intrinsic value, balance sheet strength, and moats.")
+        col_c.markdown("**🛡️ Chief Risk Officer**\nVoice of caution. Surfaces concentration risk, volatility, and downside scenarios.")
+        st.markdown("---")
+        st.markdown(
+            "**Round 1 — Initial Positions:** Each agent independently analyses the proposal.  \n"
+            "**Round 2 — Challenges:** Each agent reads the others' positions and challenges the weakest argument.  \n"
+            "**Round 3 — Final Vote:** Each agent casts APPROVE / REJECT / MODIFY with justification.  \n"
+            "Majority wins. No majority → NO CONSENSUS."
+        )
+
+    st.divider()
+
+    # ── Proposal input ─────────────────────────────────────────────────────────
+    st.subheader("Investment Proposal")
+
+    _L9_PRESETS = {
+        "Tech overweight — AI/ML push": (
+            "Increase portfolio allocation to technology sector from 25% to 40% by adding "
+            "positions in AI/ML leaders (NVDA, AMD) and reducing exposure to consumer staples."
+        ),
+        "Bitcoin hedge — 10% allocation": (
+            "Add a 10% Bitcoin allocation to the portfolio as an inflation hedge and "
+            "uncorrelated return source, funded by reducing US large-cap equity exposure."
+        ),
+        "International diversification": (
+            "Shift from 80% US equities to 50% US / 30% international developed markets by "
+            "adding Vanguard FTSE All-World ex-US ETF (VEU) and reducing S&P 500 index holdings."
+        ),
+        "Defensive rotation": (
+            "Rotate 20% of portfolio from growth equities (TSLA, NVDA) into defensive sectors "
+            "(utilities, healthcare, consumer staples) ahead of expected Fed rate hikes."
+        ),
+    }
+
+    preset_choice = st.selectbox(
+        "Choose a preset proposal or write your own:",
+        ["Custom (write below)"] + list(_L9_PRESETS.keys()),
+        key="l9_preset",
+    )
+
+    if preset_choice == "Custom (write below)":
+        default_text = ""
+    else:
+        default_text = _L9_PRESETS[preset_choice]
+
+    proposal_text = st.text_area(
+        "Proposal",
+        value=default_text,
+        height=100,
+        key="l9_proposal",
+        placeholder="Describe the investment proposal the committee should debate...",
+    )
+
+    if not os.environ.get("OPENAI_API_KEY"):
+        st.warning("Enter your OpenAI API key in the sidebar to run the committee.")
+
+    run_committee = st.button(
+        "🏛️ Convene Committee",
+        type="primary",
+        disabled=not proposal_text.strip() or not os.environ.get("OPENAI_API_KEY"),
+    )
+
+    # ── Run ────────────────────────────────────────────────────────────────────
+    if run_committee and proposal_text.strip():
+        # Clear prior results
+        for k in ["l9_result"]:
+            st.session_state.pop(k, None)
+
+        _ROUND_LABELS = {1: "📋 Initial Position", 2: "⚔️ Challenge", 3: "🗳️ Final Vote"}
+
+        with st.status("🏛️ Committee in session...", expanded=True) as _c_status:
+            _c_status.write("Convening Growth Specialist, Value Specialist, and Chief Risk Officer...")
+
+            def _on_msg(round_num, agent_role, icon, msg_type, content):
+                _c_status.write(f"{icon} **{agent_role}** — {_ROUND_LABELS[round_num]}")
+
+            try:
+                committee = InvestmentCommittee(model="gpt-4o")
+                result = committee.run(proposal_text.strip(), on_message=_on_msg)
+                st.session_state["l9_result"] = result
+                _c_status.update(label="✅ Committee deliberation complete", state="complete", expanded=False)
+            except Exception as e:
+                _c_status.update(label="❌ Committee error", state="error", expanded=True)
+                st.error(f"Error: {e}")
+
+    # ── Results ────────────────────────────────────────────────────────────────
+    if "l9_result" in st.session_state:
+        result = st.session_state["l9_result"]
+        outcome = result["outcome"]
+        tally = result["tally"]
+
+        st.divider()
+
+        # Outcome banner
+        if outcome == "APPROVED":
+            st.success(f"## ✅ {outcome}")
+        elif outcome == "REJECTED":
+            st.error(f"## ❌ {outcome}")
+        else:
+            st.warning(f"## ⚠️ {outcome}")
+
+        # Vote tally chips
+        tally_cols = st.columns(len(tally) + 1)
+        tally_cols[0].metric("Messages exchanged", result["message_count"])
+        for i, (vote_type, count) in enumerate(tally.items(), 1):
+            tally_cols[i].metric(vote_type, f"{count} / {len(result['votes'])}")
+
+        st.divider()
+
+        # Round tabs
+        tab_r1, tab_r2, tab_r3 = st.tabs(["📋 Round 1 — Initial Positions", "⚔️ Round 2 — Challenges", "🗳️ Round 3 — Votes"])
+
+        def _render_round(tab, round_num):
+            with tab:
+                messages = result["bus"].get_by_round(round_num)
+                for msg in messages:
+                    # find icon
+                    icon = next(
+                        (a["icon"] for a in result["agent_outputs"]
+                         if a["agent"] == msg.sender and a["round"] == round_num),
+                        "🤖"
+                    )
+                    with st.expander(f"{icon} {msg.sender}", expanded=True):
+                        if round_num == 3:
+                            vote = result["votes"].get(msg.sender, {}).get("vote", "")
+                            badge = {"APPROVE": "✅", "REJECT": "❌", "MODIFY": "🔧"}.get(vote, "")
+                            st.markdown(f"**Vote: {badge} {vote}**")
+                        st.markdown(msg.content)
+
+        _render_round(tab_r1, 1)
+        _render_round(tab_r2, 2)
+        _render_round(tab_r3, 3)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
