@@ -2117,6 +2117,8 @@ if st.session_state.active_layer == "committee":
             st.success(f"## ✅ {outcome}")
         elif outcome == "REJECTED":
             st.error(f"## ❌ {outcome}")
+        elif outcome == "MODIFICATION REQUIRED":
+            st.warning(f"## 🔧 {outcome}")
         else:
             st.warning(f"## ⚠️ {outcome}")
 

@@ -241,8 +241,10 @@ class InvestmentCommittee:
             outcome = "APPROVED"
         elif tally.get("REJECT", 0) > n / 2:
             outcome = "REJECTED"
+        elif tally.get("MODIFY", 0) > n / 2:
+            outcome = "MODIFICATION REQUIRED"
         else:
-            outcome = "NO CONSENSUS — MODIFICATION REQUIRED"
+            outcome = "NO CONSENSUS — REQUIRES FURTHER DISCUSSION"
 
         return {
             "proposal": proposal,
