@@ -4,22 +4,41 @@ Framework: OpenAI tool-calling API (Reasoning + Acting loop)
 """
 import os
 import json
+import time
 import yfinance as yf
+
+_TICKER_ALIASES = {
+    "BTC": "BTC-USD", "ETH": "ETH-USD", "SOL": "SOL-USD", "DOGE": "DOGE-USD",
+    "BRK.B": "BRK-B", "BRK/B": "BRK-B", "BRK.A": "BRK-A", "BRK/A": "BRK-A",
+}
+
+def _normalise(ticker: str) -> str:
+    t = ticker.strip().upper()
+    return _TICKER_ALIASES.get(t, t)
 
 
 # ── Tools ─────────────────────────────────────────────────────────────────────
 
 def get_stock_price(ticker: str) -> str:
     """Get current stock price for a single ticker."""
-    try:
-        stock = yf.Ticker(ticker.strip().upper())
-        hist = stock.history(period="1d")
-        if hist.empty:
-            return f"No price data available for {ticker}."
-        price = hist["Close"].iloc[-1]
-        return f"Current price of {ticker.upper()}: ${price:.2f}"
-    except Exception as e:
-        return f"Error fetching price for {ticker}: {str(e)}"
+    symbol = _normalise(ticker)
+    for attempt in range(3):
+        try:
+            stock = yf.Ticker(symbol)
+            hist = stock.history(period="1d")
+            if hist.empty:
+                if attempt < 2:
+                    time.sleep(2)
+                    continue
+                return f"No price data available for {symbol}."
+            price = hist["Close"].iloc[-1]
+            return f"Current price of {symbol}: ${price:.2f}"
+        except Exception as e:
+            if attempt < 2:
+                time.sleep(2 ** attempt)
+            else:
+                return f"Error fetching price for {symbol}: {str(e)}"
+    return f"{symbol}: data unavailable after retries."
 
 
 def get_portfolio_value(holdings_json: str) -> str:
@@ -32,15 +51,16 @@ def get_portfolio_value(holdings_json: str) -> str:
         total = 0.0
         lines = []
         for ticker, shares in holdings.items():
-            stock = yf.Ticker(ticker.strip().upper())
+            symbol = _normalise(ticker)
+            stock = yf.Ticker(symbol)
             hist = stock.history(period="1d")
             if hist.empty:
-                lines.append(f"{ticker}: no data")
+                lines.append(f"{symbol}: no data")
                 continue
             price = hist["Close"].iloc[-1]
             value = shares * price
             total += value
-            lines.append(f"{ticker}: {shares} shares @ ${price:.2f} = ${value:,.2f}")
+            lines.append(f"{symbol}: {shares} shares @ ${price:.2f} = ${value:,.2f}")
         lines.append(f"\nTotal Portfolio Value: ${total:,.2f}")
         return "\n".join(lines)
     except Exception as e:
@@ -59,7 +79,8 @@ def check_portfolio_alerts(holdings_json: str) -> str:
         threshold = 0.05
 
         for ticker in holdings:
-            stock = yf.Ticker(ticker.strip().upper())
+            symbol = _normalise(ticker)
+            stock = yf.Ticker(symbol)
             hist = stock.history(period="5d")
             if len(hist) < 2:
                 continue
@@ -69,11 +90,11 @@ def check_portfolio_alerts(holdings_json: str) -> str:
             if abs(change) >= threshold:
                 direction = "▲" if change > 0 else "▼"
                 alerts.append(
-                    f"ALERT: {ticker.upper()} {direction} {change*100:.2f}% "
+                    f"ALERT: {symbol} {direction} {change*100:.2f}% "
                     f"(${prev:.2f} → ${current:.2f})"
                 )
             else:
-                clean.append(f"{ticker.upper()}: {change*100:+.2f}% — within normal range")
+                clean.append(f"{symbol}: {change*100:+.2f}% — within normal range")
 
         if alerts:
             return "\n".join(alerts) + "\n\n" + "\n".join(clean)

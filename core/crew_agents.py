@@ -4,34 +4,61 @@ Source: week7_capstone
 Framework: CrewAI sequential crew — Research → Risk → Portfolio Manager
 """
 import os
-import json
+import time
 import yfinance as yf
 import pandas as pd
 from typing import Optional, Callable
+
+
+# ── Ticker normalisation ───────────────────────────────────────────────────────
+# Maps common shorthand to the Yahoo Finance symbol
+_TICKER_ALIASES = {
+    "BTC":   "BTC-USD",
+    "ETH":   "ETH-USD",
+    "SOL":   "SOL-USD",
+    "DOGE":  "DOGE-USD",
+    "BRK.B": "BRK-B",
+    "BRK/B": "BRK-B",
+    "BRK.A": "BRK-A",
+    "BRK/A": "BRK-A",
+}
+
+def _normalise(ticker: str) -> str:
+    t = ticker.strip().upper()
+    return _TICKER_ALIASES.get(t, t)
 
 
 # ── Tools ─────────────────────────────────────────────────────────────────────
 
 def _get_stock_data(ticker: str) -> str:
     """Fetch current price, 52-week range, P/E ratio, and market cap for one ticker."""
-    try:
-        stock = yf.Ticker(ticker.strip().upper())
-        info = stock.info
-        hist = stock.history(period="1y")
-        if hist.empty:
-            return f"{ticker}: no price data available."
-        price = hist["Close"].iloc[-1]
-        return (
-            f"Stock: {ticker.upper()}\n"
-            f"Current Price: ${price:.2f}\n"
-            f"52-Week High: ${info.get('fiftyTwoWeekHigh', 'N/A')}\n"
-            f"52-Week Low:  ${info.get('fiftyTwoWeekLow', 'N/A')}\n"
-            f"P/E Ratio: {info.get('trailingPE', 'N/A')}\n"
-            f"Market Cap: ${info.get('marketCap', 0):,}\n"
-            f"Sector: {info.get('sector', 'N/A')}"
-        )
-    except Exception as e:
-        return f"Error fetching data for {ticker}: {str(e)}"
+    symbol = _normalise(ticker)
+    for attempt in range(3):
+        try:
+            stock = yf.Ticker(symbol)
+            info = stock.info
+            hist = stock.history(period="1y")
+            if hist.empty:
+                if attempt < 2:
+                    time.sleep(2)
+                    continue
+                return f"{symbol}: no price data available."
+            price = hist["Close"].iloc[-1]
+            return (
+                f"Stock: {symbol}\n"
+                f"Current Price: ${price:.2f}\n"
+                f"52-Week High: ${info.get('fiftyTwoWeekHigh', 'N/A')}\n"
+                f"52-Week Low:  ${info.get('fiftyTwoWeekLow', 'N/A')}\n"
+                f"P/E Ratio: {info.get('trailingPE', 'N/A')}\n"
+                f"Market Cap: ${info.get('marketCap', 0):,}\n"
+                f"Sector: {info.get('sector', 'N/A')}"
+            )
+        except Exception as e:
+            if attempt < 2:
+                time.sleep(2 ** attempt)
+            else:
+                return f"Error fetching data for {symbol}: {str(e)}"
+    return f"{symbol}: data unavailable after retries."
 
 
 def _calculate_portfolio_risk(tickers_csv: str) -> str:
@@ -39,7 +66,7 @@ def _calculate_portfolio_risk(tickers_csv: str) -> str:
     Calculate annualised volatility and correlation for a comma-separated list of tickers.
     """
     try:
-        tickers = [t.strip().upper() for t in tickers_csv.split(",") if t.strip()]
+        tickers = [_normalise(t) for t in tickers_csv.split(",") if t.strip()]
         if len(tickers) == 1:
             data = yf.download(tickers[0], period="1y", progress=False)["Close"]
             returns = data.pct_change().dropna()
