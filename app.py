@@ -1795,23 +1795,24 @@ check_drift ──► [drift > 5%?]
 
     with col_p:
         st.markdown("**Current Portfolio**")
-        _pdf_display = st.session_state["l8_portfolio_df"].copy()
-        _total_val = _pdf_display["Current Value ($)"].fillna(0).sum()
-        _pdf_display["Weight (%)"] = (
-            (_pdf_display["Current Value ($)"].fillna(0) / _total_val * 100)
-            if _total_val > 0 else 0.0
-        )
         portfolio_df = st.data_editor(
-            _pdf_display,
+            st.session_state["l8_portfolio_df"],
             num_rows="dynamic", use_container_width=True,
-            disabled=["Weight (%)"],
             column_config={
                 "Ticker": st.column_config.TextColumn("Ticker", width="small"),
                 "Current Value ($)": st.column_config.NumberColumn("Value ($)", min_value=0, step=1000, format="$%d"),
-                "Weight (%)": st.column_config.NumberColumn("Weight (%)", format="%.1f%%"),
-            }, key="l8_portfolio_editor_v3",
+            }, key="l8_portfolio_editor",
         )
-        st.session_state["l8_portfolio_df"] = portfolio_df[["Ticker", "Current Value ($)"]]
+        st.session_state["l8_portfolio_df"] = portfolio_df
+        _total_val = portfolio_df["Current Value ($)"].fillna(0).sum()
+        if _total_val > 0:
+            _weights = portfolio_df.copy()
+            _weights = _weights[_weights["Current Value ($)"].fillna(0) > 0]
+            _weights["Weight (%)"] = (_weights["Current Value ($)"] / _total_val * 100).map("{:.1f}%".format)
+            st.dataframe(
+                _weights[["Ticker", "Weight (%)"]].reset_index(drop=True),
+                use_container_width=True, hide_index=True,
+            )
 
     with col_t:
         st.markdown("**Target Allocation**")
