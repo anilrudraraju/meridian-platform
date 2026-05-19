@@ -11,54 +11,78 @@ from typing import Optional, Callable
 
 
 # ── Ticker normalisation ───────────────────────────────────────────────────────
-# Maps common shorthand to the Yahoo Finance symbol
 _TICKER_ALIASES = {
-    "BTC":   "BTC-USD",
-    "ETH":   "ETH-USD",
-    "SOL":   "SOL-USD",
-    "DOGE":  "DOGE-USD",
-    "BRK.B": "BRK-B",
-    "BRK/B": "BRK-B",
-    "BRK.A": "BRK-A",
-    "BRK/A": "BRK-A",
+    # Crypto — must have -USD suffix on Yahoo Finance
+    "BTC": "BTC-USD", "ETH": "ETH-USD", "SOL": "SOL-USD",
+    "DOGE": "DOGE-USD", "ADA": "ADA-USD", "XRP": "XRP-USD",
+    # Berkshire variants
+    "BRK": "BRK-B", "BRK.B": "BRK-B", "BRK/B": "BRK-B",
+    "BRK.A": "BRK-A", "BRK/A": "BRK-A",
 }
 
 def _normalise(ticker: str) -> str:
     t = ticker.strip().upper()
     return _TICKER_ALIASES.get(t, t)
 
+def _parse_tickers(portfolio_csv: str) -> list[str]:
+    return [_normalise(t) for t in portfolio_csv.split(",") if t.strip()]
+
 
 # ── Tools ─────────────────────────────────────────────────────────────────────
 
-def _get_stock_data(ticker: str) -> str:
-    """Fetch current price, 52-week range, P/E ratio, and market cap for one ticker."""
-    symbol = _normalise(ticker)
-    for attempt in range(3):
+def _get_portfolio_data(tickers_csv: str) -> str:
+    """
+    Batch-fetch price, 52-week range, P/E, market cap for all tickers in one call.
+    Uses yf.download() for prices (one HTTP request) then yf.Ticker.info per symbol.
+    """
+    symbols = _parse_tickers(tickers_csv)
+    if not symbols:
+        return "No valid tickers provided."
+
+    # One batch download for all prices
+    try:
+        raw = yf.download(symbols if len(symbols) > 1 else symbols[0],
+                          period="1y", progress=False)
+        if isinstance(raw.columns, pd.MultiIndex):
+            close = raw["Close"]
+        else:
+            close = raw.rename(columns={"Close": symbols[0]}) if "Close" in raw.columns else raw
+            close = pd.DataFrame(close)
+    except Exception as e:
+        return f"Price download failed: {e}"
+
+    lines = []
+    for symbol in symbols:
         try:
-            stock = yf.Ticker(symbol)
-            info = stock.info
-            hist = stock.history(period="1y")
-            if hist.empty:
-                if attempt < 2:
-                    time.sleep(2)
-                    continue
-                return f"{symbol}: no price data available."
-            price = hist["Close"].iloc[-1]
-            return (
-                f"Stock: {symbol}\n"
-                f"Current Price: ${price:.2f}\n"
-                f"52-Week High: ${info.get('fiftyTwoWeekHigh', 'N/A')}\n"
-                f"52-Week Low:  ${info.get('fiftyTwoWeekLow', 'N/A')}\n"
-                f"P/E Ratio: {info.get('trailingPE', 'N/A')}\n"
-                f"Market Cap: ${info.get('marketCap', 0):,}\n"
-                f"Sector: {info.get('sector', 'N/A')}"
+            # Price from batch download
+            col = symbol if symbol in close.columns else None
+            if col and not close[col].dropna().empty:
+                price = float(close[col].dropna().iloc[-1])
+                high52 = float(close[col].dropna().max())
+                low52 = float(close[col].dropna().min())
+            else:
+                price = high52 = low52 = None
+
+            # Fundamentals — one call per ticker but with a small delay
+            time.sleep(0.5)
+            info = yf.Ticker(symbol).info
+            pe = info.get("trailingPE", "N/A")
+            mcap = info.get("marketCap", 0)
+            sector = info.get("sector", "N/A")
+
+            lines.append(
+                f"--- {symbol} ---\n"
+                f"  Price: {'${:.2f}'.format(price) if price else 'N/A'}\n"
+                f"  52-Week High/Low: {'${:.2f}'.format(high52) if high52 else 'N/A'} / "
+                f"{'${:.2f}'.format(low52) if low52 else 'N/A'}\n"
+                f"  P/E Ratio: {pe}\n"
+                f"  Market Cap: ${mcap:,}\n"
+                f"  Sector: {sector}"
             )
         except Exception as e:
-            if attempt < 2:
-                time.sleep(2 ** attempt)
-            else:
-                return f"Error fetching data for {symbol}: {str(e)}"
-    return f"{symbol}: data unavailable after retries."
+            lines.append(f"--- {symbol} ---\n  Error: {e}")
+
+    return "\n".join(lines) if lines else "No data retrieved."
 
 
 def _calculate_portfolio_risk(tickers_csv: str) -> str:
@@ -124,10 +148,10 @@ class PortfolioAnalysisCrew:
         llm = LLM(model=self._model, api_key=os.environ.get("OPENAI_API_KEY"))
 
         # Wrap plain functions as CrewAI tools
-        @crewai_tool("GetStockData")
-        def get_stock_data(ticker: str) -> str:
-            """Get stock data including current price, 52-week range, P/E, and market cap for a single ticker symbol."""
-            return _get_stock_data(ticker)
+        @crewai_tool("GetPortfolioData")
+        def get_portfolio_data(tickers: str) -> str:
+            """Fetch price, 52-week range, P/E ratio, and market cap for ALL tickers at once. Input: comma-separated ticker symbols, e.g. AAPL,MSFT,BTC"""
+            return _get_portfolio_data(tickers)
 
         @crewai_tool("CalculatePortfolioRisk")
         def calculate_portfolio_risk(tickers: str) -> str:
@@ -142,7 +166,7 @@ class PortfolioAnalysisCrew:
                 "You are an experienced equity research analyst at Meridian Wealth Partners "
                 "with expertise in gathering and synthesising financial data across sectors."
             ),
-            tools=[get_stock_data],
+            tools=[get_portfolio_data],
             llm=llm,
             verbose=False,
             allow_delegation=False,
@@ -187,11 +211,14 @@ class PortfolioAnalysisCrew:
             return cb
 
         # ── Tasks ─────────────────────────────────────────────────────────────
+        # Normalise tickers before passing into task descriptions
+        normalised = ", ".join(_parse_tickers(portfolio))
+
         research_task = Task(
             description=(
-                f"Analyse every holding in this portfolio: {portfolio}.\n"
-                "For each ticker call GetStockData and report current price, "
-                "valuation metrics, sector, and recent 52-week range."
+                f"Analyse this portfolio: {normalised}.\n"
+                f"Call GetPortfolioData ONCE with all tickers together: '{normalised}'\n"
+                "Report current price, 52-week range, P/E ratio, market cap, and sector for every holding."
             ),
             agent=research_agent,
             expected_output="A data report covering price, valuation, and sector for every holding.",
@@ -200,9 +227,9 @@ class PortfolioAnalysisCrew:
 
         risk_task = Task(
             description=(
-                f"Using the research findings, assess the risk of this portfolio: {portfolio}.\n"
-                "Call CalculatePortfolioRisk with ALL tickers together, then interpret "
-                "the volatility and correlation data. Flag any concentration or sector risk."
+                f"Using the research findings, assess the risk of this portfolio.\n"
+                f"Call CalculatePortfolioRisk ONCE with all tickers together: '{normalised}'\n"
+                "Interpret the volatility figures and correlation matrix. Flag concentration or sector risk."
             ),
             agent=risk_agent,
             expected_output="Risk assessment with volatility figures, correlation insights, and key risk flags.",
