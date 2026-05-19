@@ -7,6 +7,8 @@ Classes match exactly what's in:
   - week3_capstone.ipynb: SearchResult, RAGResponse, DocumentProcessor, RAGSystem
 """
 
+APP_VERSION = "2026-05-19-v6"
+
 import streamlit as st
 import os
 import re
@@ -86,6 +88,7 @@ with st.sidebar:
     ]:
         if st.button(label, use_container_width=True,
                      type="primary" if st.session_state.active_layer == key else "secondary"):
+            print(f"[NAV] {APP_VERSION} → clicked {key}")
             st.session_state.active_layer = key
             st.rerun()
         st.caption(caption)
@@ -111,6 +114,7 @@ with st.sidebar:
     # Progress indicator
     layers_done = 8
     st.progress(layers_done / 10, text=f"Progress: {layers_done}/10 layers built")
+    st.caption(f"v{APP_VERSION}")
 
 def _clear_for_new_company(new_ticker: str) -> None:
     """If new_ticker is different from already-loaded companies, wipe all state and start fresh.
