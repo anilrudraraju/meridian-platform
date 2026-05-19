@@ -1808,7 +1808,7 @@ check_drift ──► [drift > 5%?]
                 "Ticker": st.column_config.TextColumn("Ticker", width="small"),
                 "Current Value ($)": st.column_config.NumberColumn("Value ($)", min_value=0, step=1000, format="$%d"),
                 "Weight (%)": st.column_config.NumberColumn("Weight (%)", format="%.1f%%", disabled=True),
-            }, key="l8_portfolio_editor",
+            }, key="l8_portfolio_editor_v2",
         )
         st.session_state["l8_portfolio_df"] = portfolio_df[["Ticker", "Current Value ($)"]]
 
@@ -1871,7 +1871,7 @@ check_drift ──► [drift > 5%?]
                 if node_name == "check_drift":
                     drift = state.get("drift", 0)
                     total = state.get("total_value", 0)
-                    st.write(f"{icon} **Drift Analysis** — {drift:.2%} drift | Portfolio ${total:,.0f}")
+                    wf_status.write(f"{icon} **Drift Analysis** — {drift:.2%} drift | Portfolio ${total:,.0f}")
                     curr = state.get("current_allocation", {})
                     tgt  = state.get("target_allocation", {})
                     for ticker in sorted(tgt):
@@ -1879,33 +1879,33 @@ check_drift ──► [drift > 5%?]
                         t = tgt[ticker]
                         gap = c - t
                         arrow = "▲" if gap > 0 else "▼"
-                        st.caption(f"  {ticker}: {c:.1%} actual vs {t:.1%} target  ({arrow}{abs(gap):.1%} off)")
+                        wf_status.caption(f"  {ticker}: {c:.1%} actual vs {t:.1%} target  ({arrow}{abs(gap):.1%} off)")
                 elif node_name == "generate_trades":
                     trades = state.get("trades", [])
                     total_tv = state.get("total_trade_value", 0)
-                    st.write(f"{icon} **Trade Generation** — {len(trades)} trades | Total ${total_tv:,.0f}")
+                    wf_status.write(f"{icon} **Trade Generation** — {len(trades)} trades | Total ${total_tv:,.0f}")
                     for t in trades:
                         dot = "🟢" if t["action"] == "buy" else "🔴"
-                        st.caption(f"  {dot} {t['action'].upper()} {t['ticker']} ${t['value']:,.0f}")
+                        wf_status.caption(f"  {dot} {t['action'].upper()} {t['ticker']} ${t['value']:,.0f}")
                 elif node_name == "optimize_tax":
                     tax = state.get("tax_impact", 0)
-                    st.write(f"{icon} **Tax Optimisation** — Est. tax impact ${tax:,.0f}")
+                    wf_status.write(f"{icon} **Tax Optimisation** — Est. tax impact ${tax:,.0f}")
                 elif node_name == "check_approval":
                     requires = state.get("requires_approval", False)
                     total_tv = state.get("total_trade_value", 0)
                     threshold = state.get("approval_threshold", 1_000_000)
                     if requires:
-                        st.write(f"{icon} **Approval Gate** — ${total_tv:,.0f} exceeds ${threshold:,.0f} threshold ⚠️ — pausing for review")
+                        wf_status.write(f"{icon} **Approval Gate** — ${total_tv:,.0f} exceeds ${threshold:,.0f} threshold ⚠️ — pausing for review")
                     else:
-                        st.write(f"{icon} **Approval Gate** — ${total_tv:,.0f} below ${threshold:,.0f} threshold ✅ — proceeding")
+                        wf_status.write(f"{icon} **Approval Gate** — ${total_tv:,.0f} below ${threshold:,.0f} threshold ✅ — proceeding")
                 elif node_name == "execute_trades":
                     n = len(state.get("trades", []))
-                    st.write(f"{icon} **Executing {n} trade(s)** — complete")
+                    wf_status.write(f"{icon} **Executing {n} trade(s)** — complete")
                 elif node_name == "no_rebalance":
                     drift = state.get("drift", 0)
-                    st.write(f"{icon} **No Rebalancing Needed** — {drift:.2%} drift is within 5% threshold")
+                    wf_status.write(f"{icon} **No Rebalancing Needed** — {drift:.2%} drift is within 5% threshold")
                 elif node_name == "rejection":
-                    st.write(f"{icon} **Rejected** — no trades executed")
+                    wf_status.write(f"{icon} **Rejected** — no trades executed")
 
             try:
                 wf = RebalancingWorkflow()
