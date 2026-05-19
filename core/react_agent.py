@@ -1,14 +1,10 @@
 """
 core/react_agent.py — Layer 6: Autonomous ReAct Agent for Portfolio Monitoring
-Source: week6_capstone
-Framework: LangChain ReAct (Reasoning + Acting)
+Framework: OpenAI tool-calling API (Reasoning + Acting loop)
 """
 import os
 import json
 import yfinance as yf
-from typing import Optional
-
-from core.guardrails import FinancialGuardrails
 
 
 # ── Tools ─────────────────────────────────────────────────────────────────────
@@ -86,119 +82,171 @@ def check_portfolio_alerts(holdings_json: str) -> str:
         return f"Error checking alerts: {str(e)}"
 
 
+# ── Tool registry ──────────────────────────────────────────────────────────────
+
+_TOOL_FUNCTIONS = {
+    "GetStockPrice": get_stock_price,
+    "GetPortfolioValue": get_portfolio_value,
+    "CheckPortfolioAlerts": check_portfolio_alerts,
+}
+
+_TOOL_SCHEMAS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "GetStockPrice",
+            "description": (
+                "Get the current price of a single stock. "
+                "Input must be a ticker symbol only, e.g. AAPL"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "ticker": {
+                        "type": "string",
+                        "description": "Stock ticker symbol, e.g. AAPL",
+                    }
+                },
+                "required": ["ticker"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "GetPortfolioValue",
+            "description": (
+                "Calculate the total value of a portfolio. "
+                'Input must be a JSON string mapping tickers to share counts, '
+                'e.g. {"AAPL": 100, "MSFT": 50}'
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "holdings_json": {
+                        "type": "string",
+                        "description": 'JSON string mapping tickers to shares, e.g. {"AAPL": 100}',
+                    }
+                },
+                "required": ["holdings_json"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "CheckPortfolioAlerts",
+            "description": (
+                "Check if any portfolio positions moved more than 5% in the last trading day. "
+                'Input must be a JSON string mapping tickers to share counts, '
+                'e.g. {"AAPL": 100, "MSFT": 50}'
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "holdings_json": {
+                        "type": "string",
+                        "description": 'JSON string mapping tickers to shares, e.g. {"AAPL": 100}',
+                    }
+                },
+                "required": ["holdings_json"],
+            },
+        },
+    },
+]
+
+_SYSTEM_PROMPT = (
+    "You are a portfolio monitoring AI agent for Meridian Wealth Partners. "
+    "Your job is to analyze portfolios, identify issues, and provide clear recommendations. "
+    "Always use at least one tool before giving your final answer. "
+    "Be specific and cite actual numbers in your response."
+)
+
+
 # ── Agent ─────────────────────────────────────────────────────────────────────
 
 class PortfolioReActAgent:
     """
-    Single autonomous ReAct agent for portfolio monitoring.
-    Source: week6_capstone
-    Framework: LangChain create_react_agent + AgentExecutor
+    Autonomous ReAct agent for portfolio monitoring using OpenAI tool-calling.
     Tools: GetStockPrice · GetPortfolioValue · CheckPortfolioAlerts
     """
 
-    REACT_PROMPT = """You are a portfolio monitoring AI agent for Meridian Wealth Partners. \
-Your job is to analyze portfolios, identify issues, and provide clear recommendations.
-
-You have access to the following tools:
-{tools}
-
-Use the following format EXACTLY:
-
-Question: the input question you must answer
-Thought: you should always think about what to do
-Action: the action to take, should be one of [{tool_names}]
-Action Input: the input to the action
-Observation: the result of the action
-... (this Thought/Action/Action Input/Observation can repeat N times)
-Thought: I now know the final answer
-Final Answer: the final answer to the original input question
-
-Important rules:
-- Always use a tool at least once before giving a Final Answer
-- Keep Action Input exactly as required by the tool description
-- Be specific and cite actual numbers in your Final Answer
-
-Begin!
-
-Question: {input}
-Thought: {agent_scratchpad}"""
-
     def __init__(self, model: str = "gpt-4o"):
-        from langchain.agents import create_react_agent, AgentExecutor
-        from langchain.tools import Tool
-        from langchain.prompts import PromptTemplate
-        from langchain_openai import ChatOpenAI
-
-        llm = ChatOpenAI(
-            model=model,
-            temperature=0,
-            openai_api_key=os.environ.get("OPENAI_API_KEY"),
-        )
-
-        tools = [
-            Tool(
-                name="GetStockPrice",
-                func=get_stock_price,
-                description=(
-                    "Get the current price of a single stock. "
-                    "Input must be a ticker symbol only, e.g. AAPL"
-                ),
-            ),
-            Tool(
-                name="GetPortfolioValue",
-                func=get_portfolio_value,
-                description=(
-                    "Calculate the total value of a portfolio. "
-                    'Input must be a JSON string mapping tickers to share counts, '
-                    'e.g. {"AAPL": 100, "MSFT": 50}'
-                ),
-            ),
-            Tool(
-                name="CheckPortfolioAlerts",
-                func=check_portfolio_alerts,
-                description=(
-                    "Check if any portfolio positions moved more than 5% in the last trading day. "
-                    'Input must be a JSON string mapping tickers to share counts, '
-                    'e.g. {"AAPL": 100, "MSFT": 50}'
-                ),
-            ),
-        ]
-
-        prompt = PromptTemplate(
-            input_variables=["input", "agent_scratchpad", "tools", "tool_names"],
-            template=self.REACT_PROMPT,
-        )
-
-        agent = create_react_agent(llm, tools, prompt)
-        self._executor = AgentExecutor(
-            agent=agent,
-            tools=tools,
-            verbose=True,
-            max_iterations=10,
-            early_stopping_method="generate",
-            handle_parsing_errors=True,
-            return_intermediate_steps=True,
-        )
+        import openai
+        self._client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+        self._model = model
+        self._max_iterations = 10
 
     def run(self, task: str) -> dict:
         """
         Run the agent on a task string.
         Returns {"output": str, "steps": list[dict], "iterations": int}
         """
-        result = self._executor.invoke({"input": task})
+        messages = [
+            {"role": "system", "content": _SYSTEM_PROMPT},
+            {"role": "user", "content": task},
+        ]
         steps = []
-        for action, observation in result.get("intermediate_steps", []):
-            steps.append({
-                "thought_and_action": action.log.strip(),
-                "tool": action.tool,
-                "tool_input": action.tool_input,
-                "observation": observation,
-            })
-        return {
-            "output": result["output"],
-            "steps": steps,
-            "iterations": len(steps),
-        }
+
+        for _ in range(self._max_iterations):
+            response = self._client.chat.completions.create(
+                model=self._model,
+                messages=messages,
+                tools=_TOOL_SCHEMAS,
+                tool_choice="auto",
+                temperature=0,
+            )
+            msg = response.choices[0].message
+
+            # No tool calls — agent is done
+            if not msg.tool_calls:
+                return {
+                    "output": msg.content or "",
+                    "steps": steps,
+                    "iterations": len(steps),
+                }
+
+            # Append assistant message with tool calls
+            messages.append({"role": "assistant", "content": msg.content, "tool_calls": [
+                {
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+                }
+                for tc in msg.tool_calls
+            ]})
+
+            # Execute each tool call
+            for tc in msg.tool_calls:
+                fn_name = tc.function.name
+                try:
+                    fn_args = json.loads(tc.function.arguments)
+                except json.JSONDecodeError:
+                    fn_args = {}
+
+                fn = _TOOL_FUNCTIONS.get(fn_name)
+                if fn is None:
+                    observation = f"Unknown tool: {fn_name}"
+                else:
+                    # Each tool takes a single positional arg
+                    arg_val = next(iter(fn_args.values()), "") if fn_args else ""
+                    observation = fn(arg_val)
+
+                steps.append({
+                    "tool": fn_name,
+                    "tool_input": fn_args,
+                    "observation": observation,
+                })
+
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "content": observation,
+                })
+
+        # Hit max iterations — return whatever we have
+        last_content = messages[-1].get("content", "Max iterations reached without final answer.")
+        return {"output": last_content, "steps": steps, "iterations": len(steps)}
 
 
 # ── Safe wrapper ──────────────────────────────────────────────────────────────
@@ -210,6 +258,7 @@ class SafeAgentExecutor:
     """
 
     def __init__(self, agent: PortfolioReActAgent):
+        from core.guardrails import FinancialGuardrails
         self._agent = agent
         self._guardrails = FinancialGuardrails()
 
@@ -239,10 +288,8 @@ class SafeAgentExecutor:
 class AgentEvaluator:
     """
     Runs predefined test cases against the agent and measures accuracy + efficiency.
-    Source: week6_capstone AgentEvaluator
     """
 
-    # Fixed test suite — keywords that must appear in a passing answer
     TEST_CASES = [
         {
             "input": "What is the current price of Apple stock (AAPL)?",
