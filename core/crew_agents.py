@@ -18,6 +18,10 @@ _TICKER_ALIASES = {
     # Berkshire variants
     "BRK": "BRK-B", "BRK.B": "BRK-B", "BRK/B": "BRK-B",
     "BRK.A": "BRK-A", "BRK/A": "BRK-A",
+    # Renamed tickers
+    "FB": "META",       # Facebook → Meta Platforms (Oct 2021)
+    "GOOG": "GOOGL",   # prefer voting shares
+    "TWITTER": "X",    # Twitter → X (delisted, but just in case)
 }
 
 def _normalise(ticker: str) -> str:

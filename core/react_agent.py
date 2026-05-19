@@ -9,7 +9,10 @@ import yfinance as yf
 
 _TICKER_ALIASES = {
     "BTC": "BTC-USD", "ETH": "ETH-USD", "SOL": "SOL-USD", "DOGE": "DOGE-USD",
-    "BRK.B": "BRK-B", "BRK/B": "BRK-B", "BRK.A": "BRK-A", "BRK/A": "BRK-A",
+    "ADA": "ADA-USD", "XRP": "XRP-USD",
+    "BRK": "BRK-B", "BRK.B": "BRK-B", "BRK/B": "BRK-B",
+    "BRK.A": "BRK-A", "BRK/A": "BRK-A",
+    "FB": "META", "GOOG": "GOOGL",
 }
 
 def _normalise(ticker: str) -> str:
