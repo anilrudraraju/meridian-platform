@@ -1617,42 +1617,69 @@ if st.session_state.active_layer == "multi_agent":
 Tasks run **sequentially**: each agent's output becomes context for the next.
 """)
 
-    # Initialise text area state on first load only
-    if "l7_portfolio_input" not in st.session_state:
-        st.session_state["l7_portfolio_input"] = "AAPL, MSFT, GOOGL, AMZN"
+    # ── Preset definitions ────────────────────────────────────────────────────
+    _PRESETS = {
+        "Tech heavy":  [("AAPL",20),("MSFT",20),("GOOGL",20),("NVDA",20),("META",20)],
+        "Diversified": [("AAPL",20),("JPM",20),("JNJ",20),("XOM",20),("PG",20)],
+        "Growth":      [("TSLA",25),("NVDA",25),("AMZN",25),("NFLX",25)],
+    }
+
+    _DEFAULT = [("AAPL",25),("MSFT",25),("GOOGL",25),("AMZN",25)]
+
+    if "l7_holdings_df" not in st.session_state:
+        st.session_state["l7_holdings_df"] = pd.DataFrame(_DEFAULT, columns=["Ticker","Allocation (%)"])
 
     st.subheader("Portfolio Input")
     col_input, col_presets = st.columns([3, 1])
+
     with col_presets:
         st.markdown("**Quick presets**")
-        if st.button("Tech heavy", use_container_width=True):
-            st.session_state["l7_portfolio_input"] = "AAPL, MSFT, GOOGL, NVDA, META"
-            st.rerun()
-        if st.button("Diversified", use_container_width=True):
-            st.session_state["l7_portfolio_input"] = "AAPL, JPM, JNJ, XOM, PG"
-            st.rerun()
-        if st.button("Growth", use_container_width=True):
-            st.session_state["l7_portfolio_input"] = "TSLA, NVDA, AMZN, NFLX"
-            st.rerun()
-    with col_input:
-        portfolio_input = st.text_area(
-            "Enter portfolio holdings (comma-separated tickers)",
-            height=80,
-            key="l7_portfolio_input",
-        )
+        for preset_name, rows in _PRESETS.items():
+            if st.button(preset_name, use_container_width=True):
+                st.session_state["l7_holdings_df"] = pd.DataFrame(rows, columns=["Ticker","Allocation (%)"])
+                st.rerun()
 
-    if st.button("▶ Run Crew Analysis", type="primary", disabled=not portfolio_input.strip()):
+    with col_input:
+        holdings_df = st.data_editor(
+            st.session_state["l7_holdings_df"],
+            num_rows="dynamic",
+            use_container_width=True,
+            column_config={
+                "Ticker": st.column_config.TextColumn("Ticker", width="small"),
+                "Allocation (%)": st.column_config.NumberColumn(
+                    "Allocation (%)", min_value=0, max_value=100, step=1, format="%.0f%%"
+                ),
+            },
+            key="l7_editor",
+        )
+        # Save edits back to session state
+        st.session_state["l7_holdings_df"] = holdings_df
+
+        total_pct = float(holdings_df["Allocation (%)"].sum())
+        if abs(total_pct - 100) < 0.5:
+            st.success(f"Total: {total_pct:.0f}% ✅")
+        else:
+            st.warning(f"Total: {total_pct:.0f}% — will be normalised to 100%")
+
+    # Parse table → {ticker: decimal_weight}
+    valid_rows = holdings_df[
+        holdings_df["Ticker"].notna() & (holdings_df["Ticker"].str.strip() != "") &
+        holdings_df["Allocation (%)"].notna() & (holdings_df["Allocation (%)"] > 0)
+    ]
+    raw_total = float(valid_rows["Allocation (%)"].sum())
+    holdings = {
+        row["Ticker"].strip().upper(): row["Allocation (%)"] / raw_total
+        for _, row in valid_rows.iterrows()
+    } if raw_total > 0 else {}
+
+    if st.button("▶ Run Crew Analysis", type="primary", disabled=len(holdings) == 0):
         try:
             crew = PortfolioAnalysisCrew(model="gpt-4o")
+            holdings_summary = ", ".join(f"{t} ({w:.0%})" for t, w in holdings.items())
             with st.status("🤖 Agents working...", expanded=True) as crew_status:
-                st.write(f"📋 Portfolio: **{portfolio_input.strip()}**")
+                st.write(f"📋 Portfolio: **{holdings_summary}**")
                 st.divider()
 
-                task_order = [
-                    "Financial Research Analyst",
-                    "Portfolio Risk Specialist",
-                    "Senior Portfolio Manager",
-                ]
                 task_icons = {
                     "Financial Research Analyst": "📊",
                     "Portfolio Risk Specialist": "⚠️",
@@ -1669,7 +1696,7 @@ Tasks run **sequentially**: each agent's output becomes context for the next.
                         preview += "..."
                     st.caption(preview)
 
-                result = crew.run(portfolio_input.strip(), on_task=on_task)
+                result = crew.run(holdings, on_task=on_task)
                 crew_status.update(label="✅ All agents complete", state="complete")
 
             st.session_state["l7_last_result"] = result

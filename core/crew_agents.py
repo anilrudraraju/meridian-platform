@@ -103,33 +103,64 @@ def _get_portfolio_data(tickers_csv: str) -> str:
     return "\n".join(lines) if lines else "No data retrieved."
 
 
-def _calculate_portfolio_risk(tickers_csv: str) -> str:
+def _calculate_portfolio_risk(holdings_csv: str) -> str:
     """
-    Calculate annualised volatility and correlation for a comma-separated list of tickers.
+    Calculate weighted portfolio volatility and per-asset volatility + correlation.
+    Input format: 'TICKER:weight,TICKER:weight,...' where weight is a decimal (e.g. AAPL:0.40,MSFT:0.35,GOOGL:0.25).
     """
     try:
-        tickers = [_normalise(t) for t in tickers_csv.split(",") if t.strip()]
+        tickers, weights = [], {}
+        for part in holdings_csv.split(","):
+            part = part.strip()
+            if not part:
+                continue
+            if ":" in part:
+                t, w = part.split(":", 1)
+                t = _normalise(t.strip())
+                tickers.append(t)
+                weights[t] = float(w.strip())
+            else:
+                t = _normalise(part)
+                tickers.append(t)
+
+        if not tickers:
+            return "No valid tickers provided."
+
+        # Equal weights if not specified
+        if not weights:
+            w = 1 / len(tickers)
+            weights = {t: w for t in tickers}
+
         if len(tickers) == 1:
             data = yf.download(tickers[0], period="1y", progress=False)["Close"]
             returns = data.pct_change().dropna()
             vol = float(returns.std()) * (252 ** 0.5)
-            return f"Portfolio Risk Analysis:\n{tickers[0]}: {vol:.2%} annual volatility\n(Single asset — no correlation data)"
+            return (f"Portfolio Risk Analysis:\n"
+                    f"{tickers[0]} ({weights[tickers[0]]:.0%} allocation): {vol:.2%} annual volatility\n"
+                    "(Single asset — no diversification benefit)")
 
         data = yf.download(tickers, period="1y", progress=False)
-        # handle both flat and multi-level column index
         if isinstance(data.columns, pd.MultiIndex):
             close = data["Close"]
         else:
             close = data
 
         returns = close.pct_change().dropna()
-        volatility = returns.std() * (252 ** 0.5)
+        vol_per_asset = returns.std() * (252 ** 0.5)
         corr = returns.corr()
+        cov = returns.cov() * 252
 
-        lines = ["Portfolio Risk Analysis:"]
+        # Weighted portfolio volatility: σ_p = sqrt(w^T Σ w)
+        available = [t for t in tickers if t in cov.columns]
+        w_vec = pd.Series({t: weights.get(t, 0) for t in available})
+        w_vec = w_vec / w_vec.sum()
+        port_vol = float((w_vec @ cov.loc[available, available] @ w_vec) ** 0.5)
+
+        lines = [f"Weighted Portfolio Volatility: {port_vol:.2%} annualised\n",
+                 "Per-Asset Volatility (with allocation weight):"]
         for t in tickers:
-            if t in volatility:
-                lines.append(f"  {t}: {volatility[t]:.2%} annual volatility")
+            if t in vol_per_asset:
+                lines.append(f"  {t} ({weights.get(t, 0):.0%}): {vol_per_asset[t]:.2%} annual volatility")
 
         lines.append("\nCorrelation Matrix:")
         for t1 in tickers:
@@ -154,11 +185,12 @@ class PortfolioAnalysisCrew:
     def __init__(self, model: str = "gpt-4o"):
         self._model = model
 
-    def run(self, portfolio: str, on_task: Optional[Callable] = None) -> dict:
+    def run(self, holdings: dict, on_task: Optional[Callable] = None) -> dict:
         """
-        Analyse a portfolio string (comma-separated tickers).
+        Analyse a portfolio.
+        holdings: dict mapping ticker -> decimal weight, e.g. {"AAPL": 0.40, "MSFT": 0.35, "GOOGL": 0.25}
         on_task(agent_role, status_msg) is called after each task completes.
-        Returns {"output": str, "agent_outputs": list[dict], "portfolio": str}
+        Returns {"output": str, "agent_outputs": list[dict], "holdings": dict}
         """
         from crewai import Agent, Task, Crew, Process, LLM
         from crewai.tools import tool as crewai_tool
@@ -172,9 +204,9 @@ class PortfolioAnalysisCrew:
             return _get_portfolio_data(tickers)
 
         @crewai_tool("CalculatePortfolioRisk")
-        def calculate_portfolio_risk(tickers: str) -> str:
-            """Calculate annualised volatility and correlation matrix for a portfolio. Input: comma-separated ticker symbols, e.g. AAPL,MSFT,GOOGL"""
-            return _calculate_portfolio_risk(tickers)
+        def calculate_portfolio_risk(holdings: str) -> str:
+            """Calculate weighted portfolio volatility and per-asset risk. Input: comma-separated TICKER:weight pairs (decimal weights), e.g. AAPL:0.40,MSFT:0.35,GOOGL:0.25"""
+            return _calculate_portfolio_risk(holdings)
 
         # ── Agents ────────────────────────────────────────────────────────────
         research_agent = Agent(
@@ -228,42 +260,49 @@ class PortfolioAnalysisCrew:
                     on_task(role, raw)
             return cb
 
-        # ── Tasks ─────────────────────────────────────────────────────────────
-        # Normalise tickers before passing into task descriptions
-        normalised = ", ".join(_parse_tickers(portfolio))
+        # ── Build strings from holdings dict ──────────────────────────────────
+        tickers_csv = ", ".join(holdings.keys())
+        # "AAPL (40%), MSFT (35%), GOOGL (25%)" — for agent context
+        holdings_summary = ", ".join(f"{t} ({w:.0%})" for t, w in holdings.items())
+        # "AAPL:0.40,MSFT:0.35,GOOGL:0.25" — for CalculatePortfolioRisk tool
+        risk_input = ",".join(f"{t}:{w}" for t, w in holdings.items())
 
+        # ── Tasks ─────────────────────────────────────────────────────────────
         research_task = Task(
             description=(
-                f"Analyse this portfolio: {normalised}.\n"
-                f"Call GetPortfolioData ONCE with all tickers together: '{normalised}'\n"
-                "Report current price, 52-week range, P/E ratio, market cap, and sector for every holding."
+                f"Analyse the following portfolio holdings:\n{holdings_summary}\n\n"
+                f"Call GetPortfolioData ONCE with all tickers: '{tickers_csv}'\n"
+                "For each holding report: current price, 52-week range, P/E ratio, market cap, and sector.\n"
+                "Note the allocation percentage next to each ticker in your report."
             ),
             agent=research_agent,
-            expected_output="A data report covering price, valuation, and sector for every holding.",
+            expected_output="A data report covering price, valuation, sector, and allocation weight for every holding.",
             callback=make_callback(research_agent.role),
         )
 
         risk_task = Task(
             description=(
-                f"Using the research findings, assess the risk of this portfolio.\n"
-                f"Call CalculatePortfolioRisk ONCE with all tickers together: '{normalised}'\n"
-                "Interpret the volatility figures and correlation matrix. Flag concentration or sector risk."
+                f"Assess the risk of this portfolio:\n{holdings_summary}\n\n"
+                f"Call CalculatePortfolioRisk ONCE with: '{risk_input}'\n"
+                "Report the weighted portfolio volatility, per-asset volatility, and correlation matrix.\n"
+                "Flag any concentration risk (single position > 30%), sector concentration, or high-correlation pairs."
             ),
             agent=risk_agent,
-            expected_output="Risk assessment with volatility figures, correlation insights, and key risk flags.",
+            expected_output="Risk report with weighted portfolio volatility, per-asset figures, correlation insights, and concentration flags.",
             callback=make_callback(risk_agent.role),
         )
 
         synthesis_task = Task(
             description=(
-                "Review the research report and risk assessment from your colleagues.\n"
+                f"Review the research and risk reports for this portfolio:\n{holdings_summary}\n\n"
                 "Provide a concise executive summary with:\n"
                 "1. Portfolio strengths\n"
-                "2. Key risks to address\n"
-                "3. Specific actionable recommendations (buy / trim / hold / diversify)"
+                "2. Key risks (reference specific allocation percentages)\n"
+                "3. Specific actionable recommendations — cite current weights and suggest target weights "
+                "(e.g. 'trim AAPL from 40% to 25%, redeploy into ...')"
             ),
             agent=pm_agent,
-            expected_output="Executive summary with portfolio assessment and 3–5 specific recommendations.",
+            expected_output="Executive summary with weight-aware portfolio assessment and 3–5 specific recommendations citing current allocations.",
             callback=make_callback(pm_agent.role),
         )
 
@@ -275,11 +314,11 @@ class PortfolioAnalysisCrew:
             verbose=False,
         )
 
-        result = crew.kickoff(inputs={"portfolio": portfolio})
+        result = crew.kickoff(inputs={"portfolio": holdings_summary})
         final = result.raw if hasattr(result, "raw") else str(result)
 
         return {
             "output": final,
             "agent_outputs": agent_outputs,
-            "portfolio": portfolio,
+            "holdings": holdings,
         }
