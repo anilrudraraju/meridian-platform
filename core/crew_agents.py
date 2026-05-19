@@ -70,16 +70,30 @@ def _get_portfolio_data(tickers_csv: str) -> str:
             # Fundamentals — one call per ticker but with a small delay
             time.sleep(0.5)
             info = yf.Ticker(symbol).info
-            pe = info.get("trailingPE", "N/A")
             mcap = info.get("marketCap", 0)
             sector = info.get("sector", "N/A")
+
+            # P/E: trailing → forward → derive from EPS → explain if negative earnings
+            trailing_pe = info.get("trailingPE")
+            forward_pe  = info.get("forwardPE")
+            trailing_eps = info.get("trailingEps")
+            if trailing_pe and trailing_pe > 0:
+                pe_str = f"{trailing_pe:.1f}x (trailing)"
+            elif forward_pe and forward_pe > 0:
+                pe_str = f"{forward_pe:.1f}x (forward estimate)"
+            elif trailing_eps is not None and trailing_eps < 0:
+                pe_str = f"N/A — negative trailing EPS (${trailing_eps:.2f})"
+            elif price and trailing_eps and trailing_eps > 0:
+                pe_str = f"{price / trailing_eps:.1f}x (calculated)"
+            else:
+                pe_str = "N/A"
 
             lines.append(
                 f"--- {symbol} ---\n"
                 f"  Price: {'${:.2f}'.format(price) if price else 'N/A'}\n"
                 f"  52-Week High/Low: {'${:.2f}'.format(high52) if high52 else 'N/A'} / "
                 f"{'${:.2f}'.format(low52) if low52 else 'N/A'}\n"
-                f"  P/E Ratio: {pe}\n"
+                f"  P/E Ratio: {pe_str}\n"
                 f"  Market Cap: ${mcap:,}\n"
                 f"  Sector: {sector}"
             )
