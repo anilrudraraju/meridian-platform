@@ -1786,6 +1786,19 @@ check_drift ──► [drift > 5%?]
         st.session_state["l8_portfolio_df"] = p
         st.session_state["l8_target_df"] = t
 
+    # Weight display — rendered here, above the columns, guaranteed main context
+    _ss_pf = st.session_state["l8_portfolio_df"]
+    _ss_tv = float(_ss_pf["Current Value ($)"].fillna(0).sum())
+    if _ss_tv > 0:
+        _ss_parts = [
+            f"**{str(r['Ticker']).strip()}** {float(r['Current Value ($)'])/_ss_tv*100:.1f}%"
+            for _, r in _ss_pf.iterrows()
+            if pd.notna(r.get("Ticker")) and str(r.get("Ticker","")).strip()
+            and float(r.get("Current Value ($)", 0) or 0) > 0
+        ]
+        if _ss_parts:
+            st.info("📊 Current weights — " + "   |   ".join(_ss_parts))
+
     col_p, col_btn, col_t = st.columns([3, 1, 3])
 
     with col_btn:
@@ -1826,8 +1839,6 @@ check_drift ──► [drift > 5%?]
         else:
             st.warning(f"Total: {total_target:.0f}% — will be normalised")
 
-    _weight_slot = st.empty()   # placeholder — filled after portfolio dict is parsed
-
     approval_threshold = st.slider(
         "Approval threshold — trades above this value require human sign-off",
         min_value=10_000, max_value=5_000_000, value=1_000_000, step=10_000,
@@ -1849,12 +1860,6 @@ check_drift ──► [drift > 5%?]
         r["Ticker"].strip().upper(): float(r["Target (%)"]) / tgt_sum
         for _, r in tgt_valid.iterrows()
     } if tgt_sum > 0 else {}
-
-    # Fill weight slot — portfolio dict is proven correct (same source used for workflow)
-    if portfolio:
-        _pf_total = sum(portfolio.values())
-        _ws = "   |   ".join(f"{t}: {v / _pf_total * 100:.1f}%" for t, v in portfolio.items())
-        _weight_slot.info(f"📊 Current weights — {_ws}")
 
     can_run = len(portfolio) > 0 and len(target_allocation) > 0
 
