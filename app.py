@@ -1617,28 +1617,29 @@ if st.session_state.active_layer == "multi_agent":
 Tasks run **sequentially**: each agent's output becomes context for the next.
 """)
 
+    # Initialise text area state on first load only
+    if "l7_portfolio_input" not in st.session_state:
+        st.session_state["l7_portfolio_input"] = "AAPL, MSFT, GOOGL, AMZN"
+
     st.subheader("Portfolio Input")
     col_input, col_presets = st.columns([3, 1])
-    with col_input:
-        portfolio_input = st.text_area(
-            "Enter portfolio holdings (comma-separated tickers)",
-            value="AAPL, MSFT, GOOGL, AMZN",
-            height=80,
-        )
     with col_presets:
         st.markdown("**Quick presets**")
         if st.button("Tech heavy", use_container_width=True):
-            st.session_state["l7_portfolio"] = "AAPL, MSFT, GOOGL, NVDA, META"
+            st.session_state["l7_portfolio_input"] = "AAPL, MSFT, GOOGL, NVDA, META"
             st.rerun()
         if st.button("Diversified", use_container_width=True):
-            st.session_state["l7_portfolio"] = "AAPL, JPM, JNJ, XOM, PG"
+            st.session_state["l7_portfolio_input"] = "AAPL, JPM, JNJ, XOM, PG"
             st.rerun()
         if st.button("Growth", use_container_width=True):
-            st.session_state["l7_portfolio"] = "TSLA, NVDA, AMZN, NFLX"
+            st.session_state["l7_portfolio_input"] = "TSLA, NVDA, AMZN, NFLX"
             st.rerun()
-
-    if "l7_portfolio" in st.session_state:
-        portfolio_input = st.session_state.pop("l7_portfolio")
+    with col_input:
+        portfolio_input = st.text_area(
+            "Enter portfolio holdings (comma-separated tickers)",
+            height=80,
+            key="l7_portfolio_input",
+        )
 
     if st.button("▶ Run Crew Analysis", type="primary", disabled=not portfolio_input.strip()):
         try:
