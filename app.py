@@ -1729,6 +1729,7 @@ Tasks run **sequentially**: each agent's output becomes context for the next.
 # ══════════════════════════════════════════════════════════════════════════════
 if st.session_state.active_layer == "rebalancing":
     import pandas as pd
+    print("[L8] Layer 8 block entered")
 
     st.title("⚖️ Layer 8 — Stateful Rebalancing Workflow")
     st.caption("LangGraph state machine: drift detection → trade generation → tax optimisation → human approval gate")
