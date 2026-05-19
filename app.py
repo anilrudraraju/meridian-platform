@@ -1822,18 +1822,17 @@ check_drift ──► [drift > 5%?]
         else:
             st.warning(f"Total: {total_target:.0f}% — will be normalised")
 
-    # Weight breakdown — computed outside the column block so it always renders
-    _pf = st.session_state["l8_portfolio_df"]
-    _tv = float(_pf["Current Value ($)"].fillna(0).sum())
-    if _tv > 0:
-        _parts = []
-        for _, _r in _pf.iterrows():
-            _tk = str(_r.get("Ticker", "") or "").strip()
-            _vl = float(_r.get("Current Value ($)", 0) or 0)
-            if _tk and _tk.lower() != "nan" and _vl > 0:
-                _parts.append(f"**{_tk}** {_vl/_tv*100:.1f}%")
-        if _parts:
-            st.caption("Current weights: " + "  ·  ".join(_parts))
+    try:
+        _pf_rows = [(str(r["Ticker"]).strip(), float(r["Current Value ($)"] or 0))
+                    for _, r in portfolio_df.iterrows()
+                    if str(r.get("Ticker","")).strip() not in ("","nan")
+                    and float(r.get("Current Value ($)", 0) or 0) > 0]
+        if _pf_rows:
+            _pf_total = sum(v for _, v in _pf_rows)
+            _pf_weight_str = "   |   ".join(f"{t}: {v/_pf_total*100:.1f}%" for t, v in _pf_rows)
+            st.info(f"📊 Current weights — {_pf_weight_str}")
+    except Exception as _e:
+        st.warning(f"Weight calc error: {_e}")
 
     approval_threshold = st.slider(
         "Approval threshold — trades above this value require human sign-off",
