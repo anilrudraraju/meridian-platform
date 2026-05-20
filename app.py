@@ -7,7 +7,7 @@ Classes match exactly what's in:
   - week3_capstone.ipynb: SearchResult, RAGResponse, DocumentProcessor, RAGSystem
 """
 
-APP_VERSION = "2026-05-19-v7"
+APP_VERSION = "2026-05-19-v8"
 
 import streamlit as st
 import os
@@ -39,6 +39,7 @@ from core.react_agent import PortfolioReActAgent, SafeAgentExecutor, AgentEvalua
 from core.crew_agents import PortfolioAnalysisCrew
 from core.rebalancing_workflow import RebalancingWorkflow
 from core.investment_committee import InvestmentCommittee
+from core.cost import daily_spend, read_log
 from core.chunking import (
     get_chunking_config, _parse_filename_metadata, _detect_fiscal_year_end,
     _detect_quarter_from_text, _split_into_sections, _chunk_by_paragraphs,
@@ -87,21 +88,13 @@ with st.sidebar:
         ("✅ Layer 7 — Multi-Agent Collaboration",   "multi_agent",   "CrewAI · Research + Risk + Portfolio Manager agents"),
         ("✅ Layer 8 — Stateful Rebalancing",        "rebalancing",   "LangGraph · drift detection · tax optimisation · approval gate"),
         ("✅ Layer 9 — Investment Committee",        "committee",     "MessageBus · 3-round debate · Growth vs Value vs Risk · consensus vote"),
+        ("✅ Layer 10 — Integrated Platform",        "integrated",    "All 10 layers unified · architecture · cost tracking · capstone"),
     ]:
         if st.button(label, use_container_width=True,
                      type="primary" if st.session_state.active_layer == key else "secondary"):
             print(f"[NAV] {APP_VERSION} → clicked {key}")
             st.session_state.active_layer = key
             st.rerun()
-        st.caption(caption)
-
-    st.divider()
-
-    # Coming soon — Layer 10
-    for layer, caption in [
-        ("🔜 **Layer 10** — Integrated System + Dashboard","All layers unified · advisor workstation · client portal *(Week 10)*"),
-    ]:
-        st.markdown(layer)
         st.caption(caption)
 
     st.divider()
@@ -2153,6 +2146,134 @@ if st.session_state.active_layer == "committee":
         _render_round(tab_r1, 1)
         _render_round(tab_r2, 2)
         _render_round(tab_r3, 3)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# LAYER 10 — INTEGRATED PLATFORM
+# ══════════════════════════════════════════════════════════════════════════════
+if st.session_state.active_layer == "integrated":
+    st.title("🏗️ Layer 10 — Integrated Wealth Management Platform")
+    st.markdown(
+        "All 10 layers of the Meridian Intelligence Platform working together — "
+        "from prompt engineering foundations through autonomous agents, stateful workflows, "
+        "and committee deliberation — unified in a single advisor workstation."
+    )
+
+    # ── Platform metrics ───────────────────────────────────────────────────────
+    m1, m2, m3, m4, m5 = st.columns(5)
+    m1.metric("Layers Built", "10 / 10")
+    m2.metric("AI Frameworks", "3", help="OpenAI · CrewAI · LangGraph")
+    m3.metric("LLM Techniques", "15+")
+    m4.metric("Case Study AUM", "$12.8B")
+    try:
+        spent = daily_spend()
+        m5.metric("API Spend Today", f"${spent:.4f}")
+    except Exception:
+        m5.metric("API Spend Today", "—")
+
+    st.divider()
+
+    # ── Architecture + Layer table ─────────────────────────────────────────────
+    tab_arch, tab_workflow, tab_stack, tab_cost, tab_deploy = st.tabs([
+        "🏛️ Architecture", "🔄 End-to-End Workflow", "🛠️ Tech Stack", "💰 Cost Log", "🚀 Production"
+    ])
+
+    with tab_arch:
+        st.markdown("### 10-Layer Architecture")
+        _LAYERS = [
+            ("1", "🛡️", "Guardrails & Prompts",       "guardrails",   "5 prompt techniques · FinancialGuardrails · safe_execute()"),
+            ("2", "📈", "Portfolio Dashboard",          "portfolio",    "yfinance · live valuation · MarketDataFetcher"),
+            ("3", "📄", "Document RAG",                "rag",          "ChromaDB · EDGAR 10-K/10-Q · section-aware chunking · XBRL"),
+            ("4", "🔬", "Fine-Tuning & Evaluation",    "finetune",     "GPT-3.5 fine-tuned · ROUGE · semantic similarity"),
+            ("5", "🧭", "Responsible AI & Safety",     "responsible_ai","PII scanner · bias detection · append-only audit log"),
+            ("6", "🤖", "Autonomous ReAct Agents",     "agents",       "OpenAI tool-calling · ReAct loop · 3 portfolio tools"),
+            ("7", "🤝", "Multi-Agent Collaboration",   "multi_agent",  "CrewAI · Research → Risk → Portfolio Manager · sequential crew"),
+            ("8", "⚖️", "Stateful Rebalancing",        "rebalancing",  "LangGraph · drift detection · tax optimisation · human gate"),
+            ("9", "🏛️", "Investment Committee",        "committee",    "MessageBus · 3-round debate · Growth/Value/Risk · majority vote"),
+            ("10","🏗️", "Integrated Platform",         "integrated",   "All layers unified · architecture · cost tracking · capstone"),
+        ]
+        for num, icon, name, key, desc in _LAYERS:
+            col_n, col_i, col_name, col_desc, col_btn = st.columns([0.5, 0.5, 2, 4, 1.5])
+            col_n.markdown(f"**L{num}**")
+            col_i.markdown(icon)
+            col_name.markdown(f"**{name}**")
+            col_desc.caption(desc)
+            if col_btn.button("Open", key=f"l10_open_{key}", use_container_width=True):
+                st.session_state.active_layer = key
+                st.rerun()
+
+    with tab_workflow:
+        st.markdown("### End-to-End Client Portfolio Review")
+        st.markdown(
+            "A full review chains five layers automatically. "
+            "The human advisor only intervenes at the approval gate."
+        )
+        steps = [
+            ("🤖 L6 — ReAct Agent",         "Monitors portfolio continuously. Fires alerts if any position moves > 5%."),
+            ("🤝 L7 — CrewAI Crew",          "Research Analyst fetches live data → Risk Specialist quantifies volatility → Portfolio Manager writes recommendations."),
+            ("⚖️ L8 — LangGraph Workflow",   "Calculates drift from target. If > 5%: generates trades, estimates tax impact, checks if approval is needed."),
+            ("🏛️ L9 — Investment Committee", "If trade value > threshold: Growth, Value, and Risk agents debate the rebalancing proposal and vote."),
+            ("🛡️ L5 — Guardrails",           "Output validated for PII, compliance language, and bias. Every action written to the audit log."),
+            ("✍️ L1 — Prompt Engine",         "Role-based prompt drafts the client communication letter with the final recommendation."),
+        ]
+        for i, (title, desc) in enumerate(steps):
+            st.markdown(f"**{i+1}. {title}**")
+            st.caption(f"   {desc}")
+            if i < len(steps) - 1:
+                st.markdown("&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;↓")
+
+    with tab_stack:
+        st.markdown("### Technology Stack")
+        col_l, col_r = st.columns(2)
+        with col_l:
+            st.markdown("**Core**")
+            st.code("Python 3.9+\nStreamlit ≥ 1.32\nOpenAI GPT-4o / GPT-4 / GPT-3.5\ntext-embedding-ada-002 (1536d)", language="text")
+            st.markdown("**Agent Frameworks**")
+            st.code("CrewAI  — Layer 7 sequential crew\nLangGraph — Layer 8 state machine\nOpenAI tool-calling — Layers 6, 9", language="text")
+        with col_r:
+            st.markdown("**Data & Storage**")
+            st.code("ChromaDB  — vector store (cosine)\nyfinance  — live market data\nSEC EDGAR API — 10-K/10-Q/Form 10\nJSONL files — audit + cost logs", language="text")
+            st.markdown("**Hosting**")
+            st.code("Streamlit Community Cloud\nAuto-deploy on git push to main\n~60s redeploy time", language="text")
+
+    with tab_cost:
+        st.markdown("### API Cost Log (today + recent)")
+        try:
+            entries = read_log()
+            if not entries:
+                st.info("No API calls logged yet. Run any layer to see cost tracking.")
+            else:
+                import pandas as pd
+                df = pd.DataFrame(entries[:50])  # most recent 50
+                df = df[["timestamp", "caller", "model", "total_tokens", "cost_usd"]].copy()
+                df["timestamp"] = df["timestamp"].str[:19]
+                df.columns = ["Time", "Caller", "Model", "Tokens", "Cost ($)"]
+                st.dataframe(
+                    df.style.format({"Cost ($)": "${:.5f}", "Tokens": "{:,}"}),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+                total = sum(e.get("cost_usd", 0) for e in entries)
+                st.metric("Total logged spend (all time)", f"${total:.4f}")
+        except Exception as e:
+            st.error(f"Could not load cost log: {e}")
+
+    with tab_deploy:
+        st.markdown("### Production Considerations")
+        items = [
+            ("Vector DB", "ChromaDB on /tmp resets after ~1hr idle on Streamlit Cloud → re-index needed", "Use Pinecone or Weaviate managed service"),
+            ("State persistence", "LangGraph MemorySaver is in-memory — lost on restart", "PostgreSQL checkpointer (built into LangGraph)"),
+            ("Auth", "No authentication in prototype", "OAuth2 / SSO via Auth0 or Okta"),
+            ("API keys", "Streamlit Secrets (fine for prototype)", "AWS Secrets Manager with rotation"),
+            ("Cost control", "$5/day soft cap via core/cost.py", "Per-advisor budgets + PagerDuty alerts"),
+            ("Audit log", "Append-only JSONL at /tmp (lost on restart)", "Append-only database table with tamper detection"),
+            ("Scaling", "Single Streamlit instance", "FastAPI backend + Streamlit frontend + Redis cache"),
+        ]
+        for area, current, production in items:
+            with st.expander(f"**{area}**"):
+                col_c, col_p = st.columns(2)
+                col_c.markdown(f"**Now (prototype)**\n\n{current}")
+                col_p.markdown(f"**Production**\n\n{production}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
