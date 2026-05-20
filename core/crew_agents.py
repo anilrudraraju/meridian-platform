@@ -195,7 +195,7 @@ class PortfolioAnalysisCrew:
         from crewai import Agent, Task, Crew, Process, LLM
         from crewai.tools import tool as crewai_tool
 
-        llm = LLM(model=self._model, api_key=os.environ.get("OPENAI_API_KEY"))
+        llm = LLM(model=self._model, api_key=os.environ.get("OPENAI_API_KEY"), max_tokens=600)
 
         # Wrap plain functions as CrewAI tools
         @crewai_tool("GetPortfolioData")
@@ -211,11 +211,8 @@ class PortfolioAnalysisCrew:
         # ── Agents ────────────────────────────────────────────────────────────
         research_agent = Agent(
             role="Financial Research Analyst",
-            goal="Gather comprehensive current data on every holding in the portfolio",
-            backstory=(
-                "You are an experienced equity research analyst at Meridian Wealth Partners "
-                "with expertise in gathering and synthesising financial data across sectors."
-            ),
+            goal="Fetch and report current data for every portfolio holding",
+            backstory="Equity research analyst at Meridian Wealth Partners. Data-focused, concise.",
             tools=[get_portfolio_data],
             llm=llm,
             verbose=False,
@@ -224,11 +221,8 @@ class PortfolioAnalysisCrew:
 
         risk_agent = Agent(
             role="Portfolio Risk Specialist",
-            goal="Assess portfolio risk, identify concentration and volatility concerns",
-            backstory=(
-                "You are a quantitative risk analyst with deep expertise in portfolio "
-                "risk management, volatility analysis, and correlation-based diversification."
-            ),
+            goal="Quantify portfolio risk — volatility, concentration, and correlation",
+            backstory="Quantitative risk analyst at Meridian Wealth Partners. Precise, numbers-first.",
             tools=[calculate_portfolio_risk],
             llm=llm,
             verbose=False,
@@ -237,12 +231,8 @@ class PortfolioAnalysisCrew:
 
         pm_agent = Agent(
             role="Senior Portfolio Manager",
-            goal="Synthesise research and risk analysis into clear, actionable client recommendations",
-            backstory=(
-                "You are a seasoned portfolio manager with 20+ years managing wealth for "
-                "high-net-worth clients. You translate complex analysis into concise, "
-                "jargon-free guidance with specific next steps."
-            ),
+            goal="Synthesise research and risk into 3–5 specific, weight-aware recommendations",
+            backstory="Portfolio manager at Meridian Wealth Partners. Translates analysis into action.",
             tools=[],
             llm=llm,
             verbose=False,
@@ -270,39 +260,37 @@ class PortfolioAnalysisCrew:
         # ── Tasks ─────────────────────────────────────────────────────────────
         research_task = Task(
             description=(
-                f"Analyse the following portfolio holdings:\n{holdings_summary}\n\n"
-                f"Call GetPortfolioData ONCE with all tickers: '{tickers_csv}'\n"
-                "For each holding report: current price, 52-week range, P/E ratio, market cap, and sector.\n"
-                "Note the allocation percentage next to each ticker in your report."
+                f"Portfolio: {holdings_summary}\n"
+                f"Call GetPortfolioData ONCE with: '{tickers_csv}'\n"
+                "Report price, 52-week range, P/E, market cap, sector, and allocation % for each holding."
             ),
             agent=research_agent,
-            expected_output="A data report covering price, valuation, sector, and allocation weight for every holding.",
+            expected_output="Price, valuation, sector, and weight for every holding. Under 300 words.",
             callback=make_callback(research_agent.role),
         )
 
         risk_task = Task(
             description=(
-                f"Assess the risk of this portfolio:\n{holdings_summary}\n\n"
+                f"Portfolio: {holdings_summary}\n"
                 f"Call CalculatePortfolioRisk ONCE with: '{risk_input}'\n"
-                "Report the weighted portfolio volatility, per-asset volatility, and correlation matrix.\n"
-                "Flag any concentration risk (single position > 30%), sector concentration, or high-correlation pairs."
+                "Report weighted portfolio volatility, per-asset volatility, correlations. "
+                "Flag any position >30% or high-correlation pairs (>0.8)."
             ),
             agent=risk_agent,
-            expected_output="Risk report with weighted portfolio volatility, per-asset figures, correlation insights, and concentration flags.",
+            expected_output="Weighted volatility, per-asset figures, correlation flags. Under 250 words.",
             callback=make_callback(risk_agent.role),
         )
 
         synthesis_task = Task(
             description=(
-                f"Review the research and risk reports for this portfolio:\n{holdings_summary}\n\n"
-                "Provide a concise executive summary with:\n"
-                "1. Portfolio strengths\n"
-                "2. Key risks (reference specific allocation percentages)\n"
-                "3. Specific actionable recommendations — cite current weights and suggest target weights "
-                "(e.g. 'trim AAPL from 40% to 25%, redeploy into ...')"
+                f"Portfolio: {holdings_summary}\n"
+                "Using the research and risk reports, write:\n"
+                "1. Top 2 strengths\n"
+                "2. Top 2 risks (cite allocation %)\n"
+                "3. 3–5 recommendations with current → target weights"
             ),
             agent=pm_agent,
-            expected_output="Executive summary with weight-aware portfolio assessment and 3–5 specific recommendations citing current allocations.",
+            expected_output="Executive summary with 3–5 weight-specific recommendations. Under 300 words.",
             callback=make_callback(pm_agent.role),
         )
 

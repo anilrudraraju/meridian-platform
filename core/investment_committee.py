@@ -34,19 +34,20 @@ class MessageBus:
     def get_by_round(self, round_num: int) -> List[Message]:
         return [m for m in self.messages if m.round_num == round_num]
 
-    def context_for(self, agent_role: str, before_round: int) -> str:
-        """Return all messages from other agents in rounds before `before_round`."""
+    def context_for(self, agent_role: str, before_round: int, max_chars: int = 300) -> str:
+        """Return truncated messages from other agents in rounds before `before_round`."""
         relevant = [
             m for m in self.messages
             if m.round_num < before_round and m.sender != agent_role
         ]
         return "\n\n".join(
-            f"[{m.sender}] ({m.message_type}): {m.content}" for m in relevant
+            f"[{m.sender}]: {m.content[:max_chars]}{'...' if len(m.content) > max_chars else ''}"
+            for m in relevant
         )
 
-    def full_transcript(self) -> str:
+    def full_transcript(self, max_chars: int = 250) -> str:
         return "\n\n".join(
-            f"[Round {m.round_num}] {m.sender} ({m.message_type}): {m.content}"
+            f"[R{m.round_num}] {m.sender}: {m.content[:max_chars]}{'...' if len(m.content) > max_chars else ''}"
             for m in self.messages
         )
 

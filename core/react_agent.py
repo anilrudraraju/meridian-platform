@@ -180,11 +180,10 @@ _TOOL_SCHEMAS = [
 ]
 
 _SYSTEM_PROMPT = (
-    "You are a portfolio monitoring AI agent for Meridian Wealth Partners. "
-    "Your job is to analyze portfolios, identify issues, and provide clear recommendations. "
-    "Before each tool call, briefly explain your reasoning in 1-2 sentences (what you are about to do and why). "
-    "Always use at least one tool before giving your final answer. "
-    "Be specific and cite actual numbers in your response."
+    "You are a portfolio monitoring agent for Meridian Wealth Partners. "
+    "Always call at least one tool before answering. "
+    "Before each tool call, state in one sentence what you are doing and why. "
+    "Be specific: cite actual numbers. Keep final answers under 150 words."
 )
 
 
@@ -235,6 +234,7 @@ class PortfolioReActAgent:
                 tools=_TOOL_SCHEMAS,
                 tool_choice="auto",
                 temperature=0,
+                max_tokens=500,
             )
             msg = response.choices[0].message
             usage = response.usage
