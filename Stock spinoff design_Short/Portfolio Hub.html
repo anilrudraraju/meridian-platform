@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Meridian-SS Portfolio Hub</title>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0a0a0b;
+      color: #ededee;
+      font-family: 'Geist', sans-serif;
+      display: flex;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* Sidebar */
+    .sidebar {
+      width: 240px;
+      background: #0a0a0b;
+      border-right: 1px solid rgba(255,255,255,0.06);
+      padding: 20px 0;
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+    }
+
+    .sidebar-header {
+      padding: 0 16px;
+      margin-bottom: 24px;
+    }
+
+    .logo {
+      font-size: 16px;
+      font-weight: 700;
+      color: #ededee;
+      margin-bottom: 4px;
+    }
+
+    .logo-sub {
+      font-size: 11px;
+      color: #a4a4ad;
+    }
+
+    .nav-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      margin-bottom: 20px;
+      padding: 0 8px;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 120ms;
+      font-size: 13px;
+      user-select: none;
+    }
+
+    .nav-item:hover {
+      background: rgba(255,255,255,0.05);
+    }
+
+    .nav-item.active {
+      background: rgba(74, 144, 226, 0.15);
+      color: #4a90e2;
+      font-weight: 500;
+    }
+
+    .nav-icon {
+      font-size: 16px;
+      min-width: 20px;
+    }
+
+    .nav-label {
+      flex: 1;
+    }
+
+    .nav-count {
+      font-size: 11px;
+      color: #6e6e78;
+      background: rgba(255,255,255,0.05);
+      padding: 2px 6px;
+      border-radius: 4px;
+      min-width: 24px;
+      text-align: center;
+    }
+
+    .new-analysis-btn {
+      margin: auto 8px 16px;
+      background: #10b981;
+      border: none;
+      color: #fff;
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-weight: 500;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 120ms;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+
+    .new-analysis-btn:hover {
+      background: #059669;
+    }
+
+    /* Main content */
+    .main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .content-header {
+      padding: 24px 32px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .content-title {
+      font-size: 24px;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+
+    .content-sub {
+      font-size: 13px;
+      color: #a4a4ad;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 0;
+      padding: 0 32px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+
+    .tab {
+      padding: 12px 16px;
+      font-size: 13px;
+      color: #a4a4ad;
+      cursor: pointer;
+      transition: all 120ms;
+      border-bottom: 2px solid transparent;
+      user-select: none;
+    }
+
+    .tab:hover {
+      color: #ededee;
+    }
+
+    .tab.active {
+      color: #ededee;
+      border-bottom-color: #4a90e2;
+    }
+
+    /* Content area */
+    .content {
+      flex: 1;
+      padding: 32px;
+      overflow-y: auto;
+    }
+
+    .cards-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+      gap: 20px;
+    }
+
+    .card {
+      background: #131316;
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 12px;
+      padding: 20px;
+      transition: all 120ms;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .card:hover {
+      background: #1a1a1f;
+      border-color: rgba(255,255,255,0.1);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+    }
+
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+    }
+
+    .card-ticker {
+      font-size: 13px;
+      color: #a4a4ad;
+    }
+
+    .card-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: #ededee;
+    }
+
+    .card-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      padding: 4px 8px;
+      border-radius: 4px;
+      background: rgba(255,255,255,0.05);
+      color: #a4a4ad;
+    }
+
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+
+    .status-active { background: #10b981; }
+    .status-closed { background: #6366f1; }
+    .status-watching { background: #f59e0b; }
+
+    .card-meta {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      font-size: 12px;
+    }
+
+    .meta-item {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .meta-label {
+      color: #6e6e78;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-size: 10px;
+    }
+
+    .meta-value {
+      color: #ededee;
+      font-weight: 500;
+    }
+
+    .composite-score {
+      font-size: 24px;
+      font-weight: 700;
+      color: #ededee;
+    }
+
+    .composite-score.green { color: #10b981; }
+    .composite-score.amber { color: #f59e0b; }
+    .composite-score.red { color: #ef4444; }
+
+    .dims {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+    }
+
+    .dim-chip {
+      font-size: 10px;
+      padding: 4px 6px;
+      border-radius: 4px;
+      font-weight: 500;
+      color: #fff;
+    }
+
+    .dim-s { background: oklch(0.72 0.15 295 / 0.6); }
+    .dim-b { background: oklch(0.72 0.13 240 / 0.6); }
+    .dim-c { background: oklch(0.78 0.15 75 / 0.6); }
+    .dim-v { background: oklch(0.78 0.16 148 / 0.6); }
+    .dim-i { background: oklch(0.72 0.16 350 / 0.6); }
+
+    .card-footer {
+      display: flex;
+      gap: 8px;
+      padding-top: 12px;
+      border-top: 1px solid rgba(255,255,255,0.04);
+    }
+
+    .btn {
+      flex: 1;
+      padding: 8px 12px;
+      border: none;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 120ms;
+    }
+
+    .btn-primary {
+      background: #4a90e2;
+      color: #fff;
+    }
+
+    .btn-primary:hover {
+      background: #3a7bc8;
+    }
+
+    .btn-ghost {
+      background: rgba(255,255,255,0.05);
+      color: #a4a4ad;
+      border: 1px solid rgba(255,255,255,0.06);
+    }
+
+    .btn-ghost:hover {
+      background: rgba(255,255,255,0.08);
+      color: #ededee;
+    }
+
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 60px 20px;
+      text-align: center;
+    }
+
+    .empty-icon {
+      font-size: 48px;
+      margin-bottom: 16px;
+    }
+
+    .empty-text {
+      font-size: 14px;
+      color: #a4a4ad;
+      margin-bottom: 16px;
+    }
+
+    .empty-btn {
+      background: #4a90e2;
+      border: none;
+      color: #fff;
+      padding: 10px 16px;
+      border-radius: 6px;
+      font-weight: 500;
+      cursor: pointer;
+    }
+
+    ::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: rgba(255,255,255,0.1);
+      border-radius: 4px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(255,255,255,0.15);
+    }
+  </style>
+</head>
+<body>
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <div class="logo">Meridian-SS</div>
+      <div class="logo-sub">Investment Research</div>
+    </div>
+
+    <div class="nav-group">
+      <div class="nav-item active">
+        <span class="nav-icon">📊</span>
+        <span class="nav-label">Portfolio Hub</span>
+        <span class="nav-count">23</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon">📖</span>
+        <span class="nav-label">Decision Journal</span>
+      </div>
+    </div>
+
+    <button class="new-analysis-btn">
+      <span>➕</span> New Analysis
+    </button>
+
+    <div style="flex: 1;"></div>
+
+    <div class="nav-group" style="margin-bottom: 0; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 16px;">
+      <div class="nav-item">
+        <span class="nav-icon">⚙️</span>
+        <span class="nav-label">Settings</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon">📚</span>
+        <span class="nav-label">Help</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Content -->
+  <div class="main">
+    <!-- Header -->
+    <div class="content-header">
+      <div>
+        <div class="content-title">Portfolio Hub</div>
+        <div class="content-sub">23 analyses across Active, Closed, and Watching</div>
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tabs">
+      <div class="tab active">📌 Active (3)</div>
+      <div class="tab">✓ Closed (12)</div>
+      <div class="tab">👁️ Watching (8)</div>
+    </div>
+
+    <!-- Content -->
+    <div class="content">
+      <div class="cards-grid">
+        <!-- Card 1: Active -->
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-ticker">LUMN</div>
+              <div class="card-title">Lumen Spinco</div>
+            </div>
+            <div class="card-status">
+              <span class="status-dot status-active"></span>
+              Active
+            </div>
+          </div>
+
+          <div class="card-meta">
+            <div class="meta-item">
+              <span class="meta-label">Composite</span>
+              <span class="composite-score green">65</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Status</span>
+              <span class="meta-value">Researching</span>
+            </div>
+          </div>
+
+          <div class="meta-item">
+            <span class="meta-label">Dimensions</span>
+            <div class="dims">
+              <span class="dim-chip dim-s">S 88</span>
+              <span class="dim-chip dim-b">B 82</span>
+              <span class="dim-chip dim-c">C 45</span>
+              <span class="dim-chip dim-v">V 60</span>
+              <span class="dim-chip dim-i">I 48</span>
+            </div>
+          </div>
+
+          <div class="meta-item">
+            <span class="meta-label">Coverage</span>
+            <span class="meta-value">26 / 35 criteria (4 blocked)</span>
+          </div>
+
+          <div class="card-footer">
+            <button class="btn btn-primary">Revisit Analysis</button>
+            <button class="btn btn-ghost">Update</button>
+          </div>
+        </div>
+
+        <!-- Card 2: Active -->
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-ticker">VNTR</div>
+              <div class="card-title">Vontier</div>
+            </div>
+            <div class="card-status">
+              <span class="status-dot status-active"></span>
+              Active
+            </div>
+          </div>
+
+          <div class="card-meta">
+            <div class="meta-item">
+              <span class="meta-label">Composite</span>
+              <span class="composite-score amber">58</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Status</span>
+              <span class="meta-value">Strengthening</span>
+            </div>
+          </div>
+
+          <div class="meta-item">
+            <span class="meta-label">Dimensions</span>
+            <div class="dims">
+              <span class="dim-chip dim-s">S 72</span>
+              <span class="dim-chip dim-b">B 62</span>
+              <span class="dim-chip dim-c">C 45</span>
+              <span class="dim-chip dim-v">V 60</span>
+              <span class="dim-chip dim-i">I 48</span>
+            </div>
+          </div>
+
+          <div class="meta-item">
+            <span class="meta-label">Last Activity</span>
+            <span class="meta-value">May 9 · v2</span>
+          </div>
+
+          <div class="card-footer">
+            <button class="btn btn-primary">Revisit Analysis</button>
+            <button class="btn btn-ghost">Update</button>
+          </div>
+        </div>
+
+        <!-- Card 3: Active -->
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-ticker">STHO</div>
+              <div class="card-title">Stericycle Hldg</div>
+            </div>
+            <div class="card-status">
+              <span class="status-dot status-active"></span>
+              Active
+            </div>
+          </div>
+
+          <div class="card-meta">
+            <div class="meta-item">
+              <span class="meta-label">Composite</span>
+              <span class="composite-score green">82</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Status</span>
+              <span class="meta-value">Ready</span>
+            </div>
+          </div>
+
+          <div class="meta-item">
+            <span class="meta-label">Dimensions</span>
+            <div class="dims">
+              <span class="dim-chip dim-s">S Played</span>
+              <span class="dim-chip dim-b">B 86</span>
+              <span class="dim-chip dim-c">C 78</span>
+              <span class="dim-chip dim-v">V 82</span>
+              <span class="dim-chip dim-i">I 80</span>
+            </div>
+          </div>
+
+          <div class="meta-item">
+            <span class="meta-label">Last Activity</span>
+            <span class="meta-value">Q4 '25 · v3</span>
+          </div>
+
+          <div class="card-footer">
+            <button class="btn btn-primary">Revisit Analysis</button>
+            <button class="btn btn-ghost">Update</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

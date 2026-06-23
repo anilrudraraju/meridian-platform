@@ -1,0 +1,231 @@
+/* =====================================================================
+   meridian-thesis.css — ThesisStrengthBar + ReadyForDecisionBanner
+   ===================================================================== */
+
+/* ---- thesis strength bar ---- */
+.m-thesis {
+  display: grid;
+  grid-template-columns: 220px 1fr 210px;
+  gap: 24px;
+  align-items: stretch;
+  padding: 16px 20px;
+  background: var(--bg-elev);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  margin-bottom: 14px;
+  transition: border-color 200ms ease, background 200ms ease;
+}
+.m-thesis.strong { border-color: oklch(0.78 0.15 75 / 0.28); }
+.m-thesis.ready {
+  border-color: oklch(0.78 0.16 148 / 0.4);
+  background: linear-gradient(180deg, oklch(0.78 0.16 148 / 0.045), transparent 60%), var(--bg-elev);
+}
+
+/* ---- left: label + composite ---- */
+.m-thesis-l {
+  display: flex; flex-direction: column; gap: 4px;
+  justify-content: center;
+}
+.m-thesis-label {
+  font-size: 10.5px; color: var(--text-3);
+  letter-spacing: 0.6px; text-transform: uppercase;
+}
+.m-thesis-state {
+  font-size: 17px; font-weight: 500; color: var(--text);
+  margin-top: 2px;
+}
+.m-thesis.strong .m-thesis-state { color: var(--amber); }
+.m-thesis.ready  .m-thesis-state { color: var(--green); }
+.m-thesis-composite {
+  display: flex; align-items: baseline; gap: 4px;
+  margin-top: 6px;
+}
+.m-thesis-composite .v {
+  font-size: 38px; font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.m-thesis-composite .vmax { font-size: 14px; color: var(--text-3); }
+.m-thesis.strong .m-thesis-composite .v { color: var(--amber); }
+.m-thesis.ready  .m-thesis-composite .v { color: var(--green); }
+.m-thesis-meta {
+  font-size: 12px; color: var(--text-3); margin-top: 4px;
+}
+
+/* ---- center: chart ---- */
+.m-thesis-chart {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 16px;
+  height: 144px;
+  padding: 22px 0 22px 0;
+}
+
+.m-thesis-grid {
+  position: absolute; inset: 22px 0 22px 0;
+  pointer-events: none;
+}
+.m-thesis-grid i {
+  position: absolute; left: 0; right: 0; height: 0;
+  border-top: 1px dashed rgba(255, 255, 255, 0.08);
+}
+.m-thesis-grid i[data-mark="90"] {
+  border-top-color: oklch(0.78 0.16 148 / 0.45);
+  border-top-style: solid;
+}
+.m-thesis-grid i[data-mark="80"] {
+  border-top-color: oklch(0.78 0.15 75 / 0.28);
+}
+.m-thesis-grid i::before {
+  content: attr(data-mark);
+  position: absolute; left: -36px; top: -7px;
+  font-size: 10.5px; color: var(--text-3);
+  letter-spacing: 0.3px;
+  font-variant-numeric: tabular-nums;
+  width: 24px; text-align: right;
+}
+.m-thesis-grid i[data-mark="90"]::before { color: var(--green); }
+.m-thesis-grid i[data-mark="80"]::before { color: var(--amber); }
+.m-thesis-grid i::after {
+  content: attr(data-label);
+  position: absolute; right: -2px; top: -7px;
+  font-size: 9.5px; color: var(--text-4);
+  letter-spacing: 0.5px; text-transform: uppercase;
+  background: var(--bg-elev); padding: 0 6px;
+}
+
+.m-thesis-col {
+  position: relative;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: flex-end;
+  height: 100%;
+}
+.m-thesis-col .bar-track {
+  position: relative;
+  width: 100%;
+  flex: 1;
+  display: flex; align-items: flex-end; justify-content: center;
+}
+.m-thesis-col .bar-fill {
+  position: relative;
+  width: 70%;
+  border-radius: 5px 5px 0 0;
+  transition: height 360ms cubic-bezier(.4, .2, .2, 1),
+              background 200ms ease,
+              box-shadow 200ms ease;
+  min-height: 4px;
+}
+.m-thesis-col .bar-tip {
+  position: absolute; top: -20px; left: 50%; transform: translateX(-50%);
+  font-size: 13px; font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  white-space: nowrap;
+}
+.m-thesis-col .letter {
+  margin-top: 8px;
+  width: 22px; height: 22px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 600;
+  border-radius: 6px;
+}
+
+.m-thesis-col.dim-setup      { --bc: var(--d-setup);      --bsoft: var(--d-setup-soft); }
+.m-thesis-col.dim-business   { --bc: var(--d-business);   --bsoft: var(--d-business-soft); }
+.m-thesis-col.dim-capital    { --bc: var(--d-capital);    --bsoft: var(--d-capital-soft); }
+.m-thesis-col.dim-valuation  { --bc: var(--d-valuation);  --bsoft: var(--d-valuation-soft); }
+.m-thesis-col.dim-incentives { --bc: var(--d-incentives); --bsoft: var(--d-incentives-soft); }
+
+.m-thesis-col .bar-fill        { background: oklch(from var(--bc) l c h / 0.32); }
+.m-thesis-col.strong .bar-fill { background: oklch(from var(--bc) l c h / 0.55); }
+.m-thesis-col.ready  .bar-fill {
+  background: var(--bc);
+  box-shadow: 0 0 18px oklch(from var(--bc) l c h / 0.55);
+}
+.m-thesis-col .letter { background: var(--bsoft); color: var(--bc); }
+.m-thesis-col.weak .bar-tip { color: var(--text-3); }
+
+/* ---- right: legend ---- */
+.m-thesis-legend {
+  display: flex; flex-direction: column; gap: 7px;
+  justify-content: center; align-self: stretch;
+  padding-left: 18px;
+  border-left: 1px solid rgba(255, 255, 255, 0.06);
+}
+.m-thesis-legend .row {
+  display: flex; gap: 8px; align-items: center;
+  font-size: 11.5px; color: var(--text-2);
+}
+.m-thesis-legend .row.hint {
+  margin-top: 4px;
+  padding-top: 7px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.08);
+  color: var(--text-3);
+  font-size: 11px;
+  font-style: italic;
+}
+.m-thesis-legend .dot {
+  width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0;
+}
+.m-thesis-legend .dot.ready  { background: var(--green); }
+.m-thesis-legend .dot.strong { background: var(--amber); }
+.m-thesis-legend .dot.weak   { background: rgba(255, 255, 255, 0.14); }
+
+/* =====================================================================
+   ReadyForDecisionBanner — green for "ready", amber for "near"
+   ===================================================================== */
+.m-ready-banner {
+  display: grid; grid-template-columns: auto 1fr auto;
+  gap: 14px; align-items: center;
+  padding: 14px 18px;
+  border-radius: 12px;
+  margin-bottom: 14px;
+  animation: m-ready-in 280ms cubic-bezier(.4, .2, .2, 1);
+}
+@keyframes m-ready-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.m-ready-banner .ico { display: inline-flex; }
+.m-ready-banner .ico svg { width: 20px; height: 20px; }
+.m-ready-banner .lbl {
+  font-size: 11.5px;
+  letter-spacing: 0.5px; text-transform: uppercase;
+  font-weight: 600; margin-bottom: 4px;
+}
+.m-ready-banner .what {
+  font-size: 13.5px; color: var(--text); line-height: 1.5;
+}
+.m-ready-banner .what b { font-weight: 600; }
+
+.m-ready-banner.ready {
+  background: oklch(0.78 0.16 148 / 0.08);
+  border: 1px solid oklch(0.78 0.16 148 / 0.32);
+  box-shadow: 0 0 0 1px oklch(0.78 0.16 148 / 0.12) inset;
+}
+.m-ready-banner.ready .ico { color: var(--green); }
+.m-ready-banner.ready .lbl { color: var(--green); }
+
+.m-ready-banner.near {
+  background: oklch(0.78 0.15 75 / 0.06);
+  border: 1px solid oklch(0.78 0.15 75 / 0.22);
+}
+.m-ready-banner.near .ico { color: var(--amber); }
+.m-ready-banner.near .lbl { color: var(--amber); }
+
+/* ---- decision journal highlighted when ready ---- */
+.m-journal.ready-elevated {
+  border: 1px solid oklch(0.78 0.16 148 / 0.32);
+  background: linear-gradient(180deg, oklch(0.78 0.16 148 / 0.04), transparent 60%), var(--bg-elev);
+  box-shadow: 0 0 0 4px oklch(0.78 0.16 148 / 0.06);
+}
+.m-journal-ready-tag {
+  display: inline-flex; gap: 5px; align-items: center;
+  padding: 2px 8px; font-size: 10.5px;
+  background: var(--green-soft); color: var(--green);
+  border-radius: 999px;
+  font-weight: 600; letter-spacing: 0.4px; text-transform: uppercase;
+  margin-left: 8px;
+}
+.m-journal-ready-tag svg { width: 10px; height: 10px; }

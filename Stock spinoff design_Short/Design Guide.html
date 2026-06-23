@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Meridian-SS Design Guide</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #0a0a0b;
+      color: #ededee;
+      line-height: 1.6;
+    }
+    
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 40px 20px;
+    }
+    
+    h1 {
+      font-size: 32px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    
+    .subtitle {
+      font-size: 14px;
+      color: #a4a4ad;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 40px;
+    }
+    
+    h2 {
+      font-size: 20px;
+      font-weight: 700;
+      margin-top: 40px;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+    
+    h3 {
+      font-size: 14px;
+      font-weight: 600;
+      color: #a4a4ad;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-top: 24px;
+      margin-bottom: 12px;
+    }
+    
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 24px;
+      margin-top: 20px;
+    }
+    
+    .card {
+      background: #131316;
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 12px;
+      padding: 24px;
+    }
+    
+    .color-swatch {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px;
+      background: rgba(255,255,255,0.02);
+      border-radius: 8px;
+      margin-bottom: 8px;
+    }
+    
+    .swatch-box {
+      width: 48px;
+      height: 48px;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+    
+    .swatch-info {
+      flex: 1;
+    }
+    
+    .swatch-name {
+      font-weight: 600;
+      font-size: 13px;
+    }
+    
+    .swatch-value {
+      font-size: 11px;
+      color: #a4a4ad;
+      font-family: "JetBrains Mono", monospace;
+    }
+    
+    .component-section {
+      background: #131316;
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 12px;
+      padding: 24px;
+      margin-top: 20px;
+    }
+    
+    .code-block {
+      background: #0a0a0b;
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 8px;
+      padding: 12px;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 11px;
+      overflow-x: auto;
+      color: #a4a4ad;
+      margin-top: 12px;
+    }
+    
+    .btn {
+      display: inline-block;
+      padding: 8px 16px;
+      border-radius: 8px;
+      border: none;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 120ms ease;
+      background: #1a1a1f;
+      color: #ededee;
+      border: 1px solid rgba(255,255,255,0.06);
+    }
+    
+    .btn:hover {
+      background: #1d1d22;
+      border-color: rgba(255,255,255,0.10);
+    }
+    
+    .btn.pri {
+      background: #4a90e2;
+      border-color: #4a90e2;
+      color: #fff;
+    }
+    
+    .btn.pri:hover {
+      background: #5a9fee;
+    }
+    
+    .table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 12px;
+      font-size: 12px;
+    }
+    
+    .table th {
+      text-align: left;
+      padding: 8px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      font-weight: 600;
+      color: #a4a4ad;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-size: 10px;
+    }
+    
+    .table td {
+      padding: 8px;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+    }
+    
+    .pill {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 500;
+    }
+    
+    .pill.s { background: rgba(189, 97, 226, 0.15); color: #bd61e2; }
+    .pill.b { background: rgba(74, 144, 226, 0.15); color: #4a90e2; }
+    .pill.c { background: rgba(217, 150, 85, 0.15); color: #d99655; }
+    .pill.v { background: rgba(16, 185, 129, 0.15); color: #10b981; }
+    .pill.i { background: rgba(236, 112, 166, 0.15); color: #ec70a6; }
+    
+    .status-pip {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 4px;
+      margin-right: 6px;
+    }
+    
+    .status-pip.done { background: #10b981; }
+    .status-pip.open { background: #d99655; }
+    .status-pip.blocked { background: #ef4444; }
+    
+    .dimension-colors {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      margin-top: 20px;
+    }
+    
+    .dim-color {
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid rgba(255,255,255,0.06);
+    }
+    
+    .dim-color-swatch {
+      height: 60px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-weight: 600;
+      font-size: 24px;
+    }
+    
+    .dim-color-info {
+      padding: 12px;
+      background: #0a0a0b;
+    }
+    
+    .dim-color-info p {
+      font-size: 11px;
+      color: #a4a4ad;
+      margin: 4px 0;
+      font-family: "JetBrains Mono", monospace;
+    }
+    
+    .navigation {
+      position: sticky;
+      top: 0;
+      background: rgba(10, 10, 11, 0.95);
+      backdrop-filter: blur(4px);
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      padding: 12px 0;
+      margin-bottom: 40px;
+      z-index: 100;
+    }
+    
+    .nav-links {
+      display: flex;
+      gap: 20px;
+      overflow-x: auto;
+      padding: 0 20px;
+    }
+    
+    .nav-link {
+      color: #a4a4ad;
+      text-decoration: none;
+      font-size: 13px;
+      white-space: nowrap;
+      transition: color 120ms ease;
+    }
+    
+    .nav-link:hover {
+      color: #ededee;
+    }
+    
+    .nav-link.active {
+      color: #4a90e2;
+      border-bottom: 2px solid #4a90e2;
+      padding-bottom: 2px;
+    }
+  </style>
+</head>
+<body>
+  <div class="navigation">
+    <div class="nav-links">
+      <a href="#overview" class="nav-link active">Overview</a>
+      <a href="#colors" class="nav-link">Colors</a>
+      <a href="#typography" class="nav-link">Typography</a>
+      <a href="#components" class="nav-link">Components</a>
+      <a href="#state" class="nav-link">State</a>
+      <a href="#screens" class="nav-link">Screens</a>
+    </div>
+  </div>
+
+  <div class="container">
+    <h1>Meridian-SS Design System</h1>
+    <p class="subtitle">Complete UI/UX specification for Claude Code integration</p>
+
+    <!-- Overview -->
+    <section id="overview">
+      <h2>Overview</h2>
+      <p style="margin-top: 12px;">Meridian-SS is a research workstation for spinoff and special-situation investing. The UI centers on a <strong>Dimension Workspace</strong> — a 5-category analysis framework that guides analysts through stock evaluation using the Greenblatt framework:</p>
+      <div style="margin-top: 16px;">
+        <strong>📊 Dimensions:</strong>
+        <div class="grid" style="grid-template-columns: repeat(5, 1fr); margin-top: 8px;">
+          <div style="text-align: center;"><span class="pill s">S</span><br><span style="font-size: 11px; color: #a4a4ad; margin-top: 4px;">Setup</span></div>
+          <div style="text-align: center;"><span class="pill b">B</span><br><span style="font-size: 11px; color: #a4a4ad; margin-top: 4px;">Business</span></div>
+          <div style="text-align: center;"><span class="pill c">C</span><br><span style="font-size: 11px; color: #a4a4ad; margin-top: 4px;">Capital</span></div>
+          <div style="text-align: center;"><span class="pill v">V</span><br><span style="font-size: 11px; color: #a4a4ad; margin-top: 4px;">Valuation</span></div>
+          <div style="text-align: center;"><span class="pill i">I</span><br><span style="font-size: 11px; color: #a4a4ad; margin-top: 4px;">Incentives</span></div>
+        </div>
+      </div>
+      <p style="margin-top: 16px;"><strong>Each dimension has 7 criteria (35 total)</strong> that analysts must research using documents from SEC filings, management calls, etc.</p>
+    </section>
+
+    <!-- Colors -->
+    <section id="colors">
+      <h2>Color System</h2>
+      
+      <h3>Dimension Colors (Primary)</h3>
+      <div class="dimension-colors">
+        <div class="dim-color">
+          <div class="dim-color-swatch" style="background: oklch(0.72 0.15 295);">S</div>
+          <div class="dim-color-info">
+            <strong>Setup</strong>
+            <p>--d-setup</p>
+            <p>oklch(0.72 0.15 295)</p>
+          </div>
+        </div>
+        <div class="dim-color">
+          <div class="dim-color-swatch" style="background: oklch(0.72 0.13 240);">B</div>
+          <div class="dim-color-info">
+            <strong>Business</strong>
+            <p>--d-business</p>
+            <p>oklch(0.72 0.13 240)</p>
+          </div>
+        </div>
+        <div class="dim-color">
+          <div class="dim-color-swatch" style="background: oklch(0.78 0.15 75);">C</div>
+          <div class="dim-color-info">
+            <strong>Capital</strong>
+            <p>--d-capital</p>
+            <p>oklch(0.78 0.15 75)</p>
+          </div>
+        </div>
+        <div class="dim-color">
+          <div class="dim-color-swatch" style="background: oklch(0.78 0.16 148);">V</div>
+          <div class="dim-color-info">
+            <strong>Valuation</strong>
+            <p>--d-valuation</p>
+            <p>oklch(0.78 0.16 148)</p>
+          </div>
+        </div>
+        <div class="dim-color">
+          <div class="dim-color-swatch" style="background: oklch(0.72 0.16 350);">I</div>
+          <div class="dim-color-info">
+            <strong>Incentives</strong>
+            <p>--d-incentives</p>
+            <p>oklch(0.72 0.16 350)</p>
+          </div>
+        </div>
+      </div>
+
+      <h3>Status Colors</h3>
+      <div class="grid">
+        <div class="color-swatch">
+          <div class="swatch-box" style="background: #10b981;"></div>
+          <div class="swatch-info">
+            <div class="swatch-name">Done (≥80)</div>
+            <div class="swatch-value">#10b981</div>
+          </div>
+        </div>
+        <div class="color-swatch">
+          <div class="swatch-box" style="background: #d99655;"></div>
+          <div class="swatch-info">
+            <div class="swatch-name">In Progress (60-79)</div>
+            <div class="swatch-value">#d99655</div>
+          </div>
+        </div>
+        <div class="color-swatch">
+          <div class="swatch-box" style="background: #ef4444;"></div>
+          <div class="swatch-info">
+            <div class="swatch-name">Blocked (<60)</div>
+            <div class="swatch-value">#ef4444</div>
+          </div>
+        </div>
+      </div>
+
+      <h3>Neutral Colors</h3>
+      <table class="table">
+        <tr>
+          <th>Token</th>
+          <th>Value</th>
+          <th>Usage</th>
+        </tr>
+        <tr>
+          <td><code>--bg</code></td>
+          <td><code>#0a0a0b</code></td>
+          <td>App background</td>
+        </tr>
+        <tr>
+          <td><code>--bg-elev</code></td>
+          <td><code>#131316</code></td>
+          <td>Cards, panels</td>
+        </tr>
+        <tr>
+          <td><code>--text</code></td>
+          <td><code>#ededee</code></td>
+          <td>Primary text</td>
+        </tr>
+        <tr>
+          <td><code>--text-2</code></td>
+          <td><code>#a4a4ad</code></td>
+          <td>Secondary text</td>
+        </tr>
+        <tr>
+          <td><code>--border</code></td>
+          <td><code>rgba(255,255,255,0.06)</code></td>
+          <td>Default border</td>
+        </tr>
+      </table>
+    </section>
+
+    <!-- Typography -->
+    <section id="typography">
+      <h2>Typography</h2>
+      <div class="component-section">
+        <h3>Font Stack</h3>
+        <p style="margin-top: 8px;"><strong>Sans-serif:</strong> Geist (via Google Fonts)</p>
+        <p><strong>Monospace:</strong> JetBrains Mono (for code, tokens, values)</p>
+        
+        <h3>Type Scale</h3>
+        <div style="margin-top: 12px;">
+          <div style="font-size: 24px; font-weight: 600; margin: 16px 0;">Display (24px / 600)</div>
+          <div style="font-size: 16px; font-weight: 600; margin: 16px 0;">Heading (16px / 600)</div>
+          <div style="font-size: 13px; font-weight: 400; margin: 16px 0;">Body (13px / 400)</div>
+          <div style="font-size: 12px; font-weight: 400; margin: 16px 0;">Small (12px / 400)</div>
+          <div style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin: 16px 0;">Label (11px / 600 / uppercase)</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Components -->
+    <section id="components">
+      <h2>Components</h2>
+      
+      <div class="component-section">
+        <h3>Buttons</h3>
+        <div style="display: flex; gap: 12px; margin-top: 12px; flex-wrap: wrap;">
+          <button class="btn">Ghost Button</button>
+          <button class="btn pri">Primary Button</button>
+        </div>
+      </div>
+
+      <div class="component-section">
+        <h3>Status Indicators</h3>
+        <p style="margin-top: 12px;">
+          <span class="status-pip done"></span> Done
+          <span style="margin-left: 16px;">
+            <span class="status-pip open"></span> Open
+          </span>
+          <span style="margin-left: 16px;">
+            <span class="status-pip blocked"></span> Blocked
+          </span>
+        </p>
+      </div>
+
+      <div class="component-section">
+        <h3>Dimension Pills</h3>
+        <div style="display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap;">
+          <span class="pill s">Setup</span>
+          <span class="pill b">Business</span>
+          <span class="pill c">Capital</span>
+          <span class="pill v">Valuation</span>
+          <span class="pill i">Incentives</span>
+        </div>
+      </div>
+
+      <div class="component-section">
+        <h3>Criteria Table Row (Grid Layout)</h3>
+        <div class="code-block">
+gridTemplateColumns: "20px 1fr 100px 110px 120px"
+                    ├─ status pip (20px)
+                    ├─ criterion name (flexible)
+                    ├─ value (100px, right)
+                    ├─ source (110px, center)
+                    └─ actions (120px, right)
+        </div>
+        <p style="margin-top: 12px; font-size: 12px; color: #a4a4ad;">Each row has: status pip | criterion name | value | source (doc chip) | action buttons (✏️ 📎 Chase/Extract)</p>
+      </div>
+
+      <div class="component-section">
+        <h3>Adjust Weights Slider</h3>
+        <p style="margin-top: 12px; font-size: 12px; margin-bottom: 12px;">Range: 0-100% (stored as integer 0-100, displayed as percentage)</p>
+        <div style="display: flex; align-items: center; gap: 12px; font-size: 12px;">
+          <label style="min-width: 80px; color: #a4a4ad;">Setup</label>
+          <input type="range" min="0" max="100" value="20" style="flex: 1; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.1); outline: none; cursor: pointer; appearance: none; -webkit-appearance: none; accent-color: oklch(0.72 0.15 295);" />
+          <span style="min-width: 30px; text-align: right; color: #ededee; font-weight: 500;">20%</span>
+        </div>
+        <p style="margin-top: 12px; font-size: 11px; color: #a4a4ad;">Color: dimension color via CSS <code>accent-color</code></p>
+      </div>
+    </section>
+
+    <!-- State -->
+    <section id="state">
+      <h2>State Management</h2>
+      
+      <div class="component-section">
+        <h3>Workspace Data Structure</h3>
+        <div class="code-block">
+{
+  ticker: "LUMN",
+  dimensions: {
+    setup: { score: 88, status: "done" },
+    business: { score: 82, status: "done" },
+    capital: { score: 45, status: "blocked" },
+    valuation: { score: 60, status: "done" },
+    incentives: { score: 48, status: "done" }
+  },
+  composite: 65,
+  weightedComposite: 62,
+  weights: {
+    setup: 20, business: 20, capital: 20,
+    valuation: 20, incentives: 20
+  },
+  coverage: { done: 26, total: 35, blocked: 4 },
+  criteria: [ /* 35 criteria */ ],
+  documents: [ /* 7 docs */ ],
+  journal: { /* decision entry */ }
+}
+        </div>
+      </div>
+
+      <div class="component-section">
+        <h3>Component State Hooks</h3>
+        <div class="code-block">
+// Workspace-level
+const [focused, setFocused] = useState(null);
+const [activeTab, setActiveTab] = useState("dims");
+const [tweaksOpen, setTweaksOpen] = useState(false);
+const [t, setTweak] = useTweaks(DEFAULTS);
+
+// Portfolio-level
+const [tab, setTab] = useState("active");
+
+// Decision Journal
+const [selectedEntry, setSelectedEntry] = useState("LUMN-v3");
+        </div>
+      </div>
+    </section>
+
+    <!-- Screens -->
+    <section id="screens">
+      <h2>Screen Flows</h2>
+      
+      <div class="component-section">
+        <h3>Navigation Structure</h3>
+        <div class="code-block">
+App
+├── Portfolio Hub (default)
+│   ├── Active tab
+│   ├── Closed tab
+│   └── Watching tab
+│       └── Card → Workspace
+│
+├── Decision Journal
+│   └── Entry list → Detail view
+│
+├── + New Analysis
+│   └── Intake modal → Workspace
+│
+└── Workspace (4-step process)
+    ├── 📊 Dimensions
+    │   ├── 5 DimCards (grid)
+    │   ├── Click → DimDetail (inline)
+    │   └── Adjust weights panel
+    ├── 💬 Ask corpus
+    ├── 🤖 Committee
+    └── 📖 Journal
+        </div>
+      </div>
+
+      <div class="component-section">
+        <h3>Key UI Patterns</h3>
+        <ul style="margin-top: 12px; padding-left: 20px;">
+          <li><strong>Inline expansion:</strong> DimCard → DimDetail (no modal)</li>
+          <li><strong>Tab navigation:</strong> 4 tabs in Workspace (dims, corpus, committee, journal)</li>
+          <li><strong>Grid layout:</strong> 5 dimension cards in responsive grid</li>
+          <li><strong>Tweaks panel:</strong> Modal overlay for weight adjustment</li>
+          <li><strong>Portfolio tabs:</strong> Active, Closed, Watching (card list per tab)</li>
+          <li><strong>Journal entry:</strong> 2-column layout (list + detail)</li>
+        </ul>
+      </div>
+    </section>
+
+    <div style="margin-top: 60px; padding-top: 24px; border-top: 1px solid rgba(255,255,255,0.06); color: #a4a4ad; font-size: 12px;">
+      <p><strong>For full interactive design:</strong> See <code>Meridian-SS.html</code> (fully functional React prototype)</p>
+      <p style="margin-top: 8px;"><strong>For implementation details:</strong> See <code>DESIGN_HANDOFF.md</code> (data flow, components, checklist)</p>
+      <p style="margin-top: 8px;"><strong>For source code:</strong> Explore <code>meridian-*.jsx</code> files (component structure, styles, logic)</p>
+    </div>
+  </div>
+
+  <script>
+    // Smooth scroll navigation
+    document.querySelectorAll('.nav-link').forEach(link => {
+      link.addEventListener('click', (e) => {
+        e.preventDefault();
+        document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
+        link.classList.add('active');
+        const id = link.getAttribute('href').substring(1);
+        document.getElementById(id).scrollIntoView({ behavior: 'smooth' });
+      });
+    });
+  </script>
+</body>
+</html>

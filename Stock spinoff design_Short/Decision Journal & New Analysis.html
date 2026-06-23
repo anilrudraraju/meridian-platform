@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Decision Journal & New Analysis</title>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0a0a0b;
+      color: #ededee;
+      font-family: 'Geist', sans-serif;
+      padding: 40px;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    .section {
+      margin-bottom: 60px;
+    }
+    .section-title {
+      font-size: 24px;
+      font-weight: 700;
+      margin-bottom: 24px;
+    }
+    .mockup {
+      background: #131316;
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 12px;
+      overflow: hidden;
+      display: flex;
+      height: 600px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    }
+
+    /* Decision Journal */
+    .dj-sidebar {
+      width: 280px;
+      background: #0a0a0b;
+      border-right: 1px solid rgba(255,255,255,0.06);
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+    }
+    .dj-header {
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .dj-entry {
+      padding: 12px;
+      border-radius: 8px;
+      margin-bottom: 8px;
+      cursor: pointer;
+      transition: all 120ms;
+      border: 1px solid transparent;
+      background: rgba(255,255,255,0.02);
+    }
+    .dj-entry:hover {
+      background: rgba(255,255,255,0.05);
+      border-color: rgba(255,255,255,0.1);
+    }
+    .dj-entry.active {
+      background: rgba(74, 144, 226, 0.15);
+      border-color: rgba(74, 144, 226, 0.3);
+    }
+    .dj-date {
+      font-size: 10px;
+      color: #6e6e78;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 2px;
+    }
+    .dj-title {
+      font-size: 12px;
+      font-weight: 500;
+      color: #ededee;
+    }
+    .dj-content {
+      flex: 1;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      overflow-y: auto;
+    }
+    .dj-entry-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+    }
+    .dj-entry-title {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    .dj-entry-date {
+      font-size: 12px;
+      color: #a4a4ad;
+    }
+    .dj-entry-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      padding: 4px 8px;
+      border-radius: 4px;
+      background: rgba(16, 185, 129, 0.15);
+      color: #10b981;
+    }
+    .dj-section-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: #6e6e78;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-top: 12px;
+      margin-bottom: 6px;
+    }
+    .dj-text {
+      font-size: 13px;
+      color: #a4a4ad;
+      line-height: 1.6;
+    }
+    .dj-insight {
+      background: rgba(74, 144, 226, 0.1);
+      border-left: 3px solid #4a90e2;
+      padding: 12px;
+      border-radius: 4px;
+      font-size: 12px;
+      color: #a4a4ad;
+    }
+
+    /* New Analysis Modal */
+    .modal-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(0,0,0,0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      backdrop-filter: blur(4px);
+    }
+    .modal {
+      background: #131316;
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 14px;
+      width: 90%;
+      max-width: 500px;
+      max-height: 90vh;
+      overflow-y: auto;
+      box-shadow: 0 25px 50px rgba(0,0,0,0.5);
+    }
+    .modal-header {
+      padding: 24px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .modal-title {
+      font-size: 18px;
+      font-weight: 600;
+    }
+    .modal-subtitle {
+      font-size: 12px;
+      color: #a4a4ad;
+      margin-top: 4px;
+    }
+    .modal-close {
+      background: none;
+      border: none;
+      color: #a4a4ad;
+      font-size: 20px;
+      cursor: pointer;
+      transition: color 120ms;
+    }
+    .modal-close:hover {
+      color: #ededee;
+    }
+    .modal-body {
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .form-label {
+      font-size: 13px;
+      font-weight: 500;
+      color: #ededee;
+    }
+    .form-sublabel {
+      font-size: 11px;
+      color: #a4a4ad;
+    }
+    .form-input {
+      background: #0a0a0b;
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 6px;
+      padding: 10px 12px;
+      color: #ededee;
+      font-size: 13px;
+      font-family: inherit;
+    }
+    .form-input:focus {
+      outline: none;
+      border-color: rgba(74, 144, 226, 0.3);
+      background: rgba(74, 144, 226, 0.05);
+    }
+    .form-input::placeholder {
+      color: #6e6e78;
+    }
+    .form-options {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .option-btn {
+      padding: 12px;
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 8px;
+      background: rgba(255,255,255,0.02);
+      color: #a4a4ad;
+      cursor: pointer;
+      transition: all 120ms;
+      font-size: 12px;
+      font-weight: 500;
+    }
+    .option-btn:hover {
+      background: rgba(255,255,255,0.05);
+      border-color: rgba(255,255,255,0.1);
+      color: #ededee;
+    }
+    .option-btn.selected {
+      background: rgba(74, 144, 226, 0.15);
+      border-color: rgba(74, 144, 226, 0.3);
+      color: #4a90e2;
+    }
+    .modal-footer {
+      padding: 20px 24px;
+      border-top: 1px solid rgba(255,255,255,0.06);
+      display: flex;
+      gap: 12px;
+    }
+    .btn {
+      flex: 1;
+      padding: 10px 16px;
+      border: none;
+      border-radius: 8px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 120ms;
+      font-size: 13px;
+    }
+    .btn-primary {
+      background: #4a90e2;
+      color: #fff;
+    }
+    .btn-primary:hover {
+      background: #3a7bc8;
+    }
+    .btn-ghost {
+      background: rgba(255,255,255,0.05);
+      color: #a4a4ad;
+      border: 1px solid rgba(255,255,255,0.06);
+    }
+    .btn-ghost:hover {
+      background: rgba(255,255,255,0.08);
+      color: #ededee;
+    }
+
+    ::-webkit-scrollbar {
+      width: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(255,255,255,0.1);
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(255,255,255,0.15);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Decision Journal -->
+    <div class="section">
+      <div class="section-title">Decision Journal View</div>
+      <p style="color: #a4a4ad; margin-bottom: 16px; font-size: 13px;">
+        Accessible from left sidebar. Shows chronological journal entries + trends. Entries are logged after each "Re-run committee" action.
+      </p>
+      <div class="mockup" style="height: auto; min-height: 500px;">
+        <div class="dj-sidebar">
+          <div class="dj-header">
+            📖 Entries
+            <span style="font-size: 11px; color: #6e6e78;">23</span>
+          </div>
+          <div class="dj-entry active">
+            <div class="dj-date">Today</div>
+            <div class="dj-title">LUMN Committee v3</div>
+          </div>
+          <div class="dj-entry">
+            <div class="dj-date">Yesterday</div>
+            <div class="dj-title">VNTR Setup review</div>
+          </div>
+          <div class="dj-entry">
+            <div class="dj-date">May 18</div>
+            <div class="dj-title">LTRPA Valuation</div>
+          </div>
+          <div class="dj-entry">
+            <div class="dj-date">May 15</div>
+            <div class="dj-title">STHO Ready decision</div>
+          </div>
+          <div class="dj-entry">
+            <div class="dj-date">May 10</div>
+            <div class="dj-title">VNTR Status change</div>
+          </div>
+        </div>
+
+        <div class="dj-content">
+          <div class="dj-entry-header">
+            <div>
+              <div class="dj-entry-title">LUMN Committee Round 3</div>
+              <div class="dj-entry-date">Today at 2:34 PM</div>
+            </div>
+            <div class="dj-entry-badge">✓ Ready</div>
+          </div>
+
+          <div>
+            <div class="dj-section-label">Primary Driver</div>
+            <div class="dj-text">
+              Forced-selling spinoff with above-peer business quality at attractive multiples. Capital structure de-risked post-pension disclosure.
+            </div>
+          </div>
+
+          <div>
+            <div class="dj-section-label">Composite Score Movement</div>
+            <div class="dj-insight">
+              Composite held at 65 (Setup 88 · Business 82 · Capital 45 → 60 · Valuation 60 · Incentives 48). Capital improved 15 pts on pension footnote.
+            </div>
+          </div>
+
+          <div>
+            <div class="dj-section-label">Key Risk Acknowledged</div>
+            <div class="dj-text">
+              Index-fund forced selling could overshoot; sized at 7% to absorb a 15% drawdown post-spin. Pension transfer still materializing.
+            </div>
+          </div>
+
+          <div>
+            <div class="dj-section-label">Next Checkpoints</div>
+            <div class="dj-text">
+              Q2 10-Q pension disclosure (due May 23) · SoTP framework from Investor Day (due Q1) · Gross margin trend (watch for deterioration)
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- New Analysis Modal -->
+    <div class="section">
+      <div class="section-title">New Analysis Modal</div>
+      <p style="color: #a4a4ad; margin-bottom: 16px; font-size: 13px;">
+        Opens when user clicks "+ New Analysis" button. 30-second intake to start a fresh 4-step analysis.
+      </p>
+      <div style="position: relative; height: 600px; background: rgba(255,255,255,0.02); border-radius: 8px; border: 1px dashed rgba(255,255,255,0.1);">
+        <div class="modal-overlay">
+          <div class="modal">
+            <div class="modal-header">
+              <div>
+                <div class="modal-title">Start New Analysis</div>
+                <div class="modal-subtitle">Ticker · Parent company · Situation type</div>
+              </div>
+              <button class="modal-close">✕</button>
+            </div>
+
+            <div class="modal-body">
+              <div class="form-group">
+                <label class="form-label">Ticker</label>
+                <input type="text" class="form-input" placeholder="e.g. LUMN, VNTR, STHO">
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Parent Company</label>
+                <input type="text" class="form-input" placeholder="e.g. CenturyLink, Fortive, Anixter">
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Situation Type</label>
+                <div class="form-options">
+                  <button class="option-btn selected">🔄 Spinoff</button>
+                  <button class="option-btn">💵 Distressed</button>
+                  <button class="option-btn">🏭 Restructure</button>
+                  <button class="option-btn">⚔️ Activist</button>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Notes (optional)</label>
+                <input type="text" class="form-input" placeholder="e.g. Telecom services · Post-distribution tracking">
+              </div>
+            </div>
+
+            <div class="modal-footer">
+              <button class="btn btn-ghost">Cancel</button>
+              <button class="btn btn-primary">Create Workspace</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

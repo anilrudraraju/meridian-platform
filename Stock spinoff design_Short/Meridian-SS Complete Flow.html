@@ -1,0 +1,1062 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Meridian-SS Complete Flow</title>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0a0a0b;
+      color: #ededee;
+      font-family: 'Geist', sans-serif;
+      display: flex;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* Sidebar */
+    .sidebar {
+      width: 240px;
+      background: #0a0a0b;
+      border-right: 1px solid rgba(255,255,255,0.06);
+      padding: 20px 0;
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+    }
+
+    .sidebar-header {
+      padding: 0 16px;
+      margin-bottom: 24px;
+    }
+
+    .logo {
+      font-size: 16px;
+      font-weight: 700;
+      color: #ededee;
+      margin-bottom: 4px;
+    }
+
+    .logo-sub {
+      font-size: 11px;
+      color: #a4a4ad;
+    }
+
+    .nav-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      margin-bottom: 20px;
+      padding: 0 8px;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 120ms;
+      font-size: 13px;
+      user-select: none;
+    }
+
+    .nav-item:hover {
+      background: rgba(255,255,255,0.05);
+    }
+
+    .nav-item.active {
+      background: rgba(74, 144, 226, 0.15);
+      color: #4a90e2;
+      font-weight: 500;
+    }
+
+    .nav-icon {
+      font-size: 16px;
+      min-width: 20px;
+    }
+
+    .nav-label {
+      flex: 1;
+    }
+
+    .nav-count {
+      font-size: 11px;
+      color: #6e6e78;
+      background: rgba(255,255,255,0.05);
+      padding: 2px 6px;
+      border-radius: 4px;
+      min-width: 24px;
+      text-align: center;
+    }
+
+    .new-analysis-btn {
+      margin: auto 8px 16px;
+      background: #10b981;
+      border: none;
+      color: #fff;
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-weight: 500;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 120ms;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+
+    .new-analysis-btn:hover {
+      background: #059669;
+    }
+
+    /* Main content */
+    .main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .content-header {
+      padding: 24px 32px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .content-title {
+      font-size: 24px;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+
+    .content-sub {
+      font-size: 13px;
+      color: #a4a4ad;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 0;
+      padding: 0 32px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+
+    .tab {
+      padding: 12px 16px;
+      font-size: 13px;
+      color: #a4a4ad;
+      cursor: pointer;
+      transition: all 120ms;
+      border-bottom: 2px solid transparent;
+      user-select: none;
+    }
+
+    .tab:hover {
+      color: #ededee;
+    }
+
+    .tab.active {
+      color: #ededee;
+      border-bottom-color: #4a90e2;
+    }
+
+    /* Content area */
+    .content {
+      flex: 1;
+      padding: 32px;
+      overflow-y: auto;
+    }
+
+    /* Decision Journal View */
+    .dj-container {
+      display: grid;
+      grid-template-columns: 280px 1fr;
+      gap: 24px;
+      height: 100%;
+    }
+
+    .dj-sidebar {
+      background: #131316;
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 12px;
+      padding: 16px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .dj-header {
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .dj-entry {
+      padding: 10px;
+      border-radius: 8px;
+      margin-bottom: 6px;
+      cursor: pointer;
+      transition: all 120ms;
+      border: 1px solid transparent;
+      background: rgba(255,255,255,0.02);
+    }
+
+    .dj-entry:hover {
+      background: rgba(255,255,255,0.05);
+      border-color: rgba(255,255,255,0.1);
+    }
+
+    .dj-entry.active {
+      background: rgba(74, 144, 226, 0.15);
+      border-color: rgba(74, 144, 226, 0.3);
+    }
+
+    .dj-date {
+      font-size: 10px;
+      color: #6e6e78;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 2px;
+    }
+
+    .dj-title {
+      font-size: 12px;
+      font-weight: 500;
+      color: #ededee;
+    }
+
+    .dj-detail {
+      background: #131316;
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 12px;
+      padding: 24px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    .dj-detail-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+
+    .dj-detail-title {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+
+    .dj-detail-date {
+      font-size: 12px;
+      color: #a4a4ad;
+    }
+
+    .dj-status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      padding: 6px 10px;
+      border-radius: 6px;
+      background: rgba(16, 185, 129, 0.15);
+      color: #10b981;
+      white-space: nowrap;
+    }
+
+    .dj-section {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .dj-section-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: #6e6e78;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .metrics-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+    }
+
+    .metric-card {
+      background: rgba(255,255,255,0.02);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 8px;
+      padding: 12px;
+    }
+
+    .metric-label {
+      font-size: 10px;
+      color: #6e6e78;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+    }
+
+    .metric-value {
+      font-size: 20px;
+      font-weight: 600;
+      color: #ededee;
+    }
+
+    .metric-value.conviction { color: #f59e0b; }
+    .metric-value.composite-green { color: #10b981; }
+    .metric-value.composite-amber { color: #f59e0b; }
+
+    .dims-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 8px;
+    }
+
+    .dim-card {
+      background: rgba(255,255,255,0.02);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 8px;
+      padding: 10px;
+      text-align: center;
+    }
+
+    .dim-letter {
+      font-size: 12px;
+      font-weight: 600;
+      color: #a4a4ad;
+      margin-bottom: 4px;
+    }
+
+    .dim-score {
+      font-size: 18px;
+      font-weight: 600;
+      color: #ededee;
+    }
+
+    .dim-s { background: oklch(0.72 0.15 295 / 0.08); }
+    .dim-b { background: oklch(0.72 0.13 240 / 0.08); }
+    .dim-c { background: oklch(0.78 0.15 75 / 0.08); }
+    .dim-v { background: oklch(0.78 0.16 148 / 0.08); }
+    .dim-i { background: oklch(0.72 0.16 350 / 0.08); }
+
+    .text-block {
+      font-size: 13px;
+      color: #a4a4ad;
+      line-height: 1.6;
+    }
+
+    .text-block strong {
+      color: #ededee;
+    }
+
+    .insight-box {
+      background: rgba(74, 144, 226, 0.1);
+      border-left: 3px solid #4a90e2;
+      padding: 12px;
+      border-radius: 4px;
+      font-size: 12px;
+      color: #a4a4ad;
+      line-height: 1.6;
+    }
+
+    .checkpoint-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      font-size: 12px;
+    }
+
+    .checkpoint-item {
+      display: flex;
+      gap: 8px;
+      padding: 8px;
+      background: rgba(255,255,255,0.02);
+      border-radius: 6px;
+    }
+
+    .checkpoint-icon {
+      min-width: 16px;
+      text-align: center;
+    }
+
+    .checkpoint-text {
+      color: #a4a4ad;
+    }
+
+    .portfolio-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+      gap: 20px;
+    }
+
+    .card {
+      background: #131316;
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 12px;
+      padding: 20px;
+      transition: all 120ms;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .card:hover {
+      background: #1a1a1f;
+      border-color: rgba(255,255,255,0.1);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+    }
+
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+    }
+
+    .card-ticker {
+      font-size: 13px;
+      color: #a4a4ad;
+    }
+
+    .card-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: #ededee;
+    }
+
+    .card-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      padding: 4px 8px;
+      border-radius: 4px;
+      background: rgba(255,255,255,0.05);
+      color: #a4a4ad;
+    }
+
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+
+    .status-active { background: #10b981; }
+
+    .card-meta {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      font-size: 12px;
+    }
+
+    .meta-item {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .meta-label {
+      color: #6e6e78;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-size: 10px;
+    }
+
+    .meta-value {
+      color: #ededee;
+      font-weight: 500;
+    }
+
+    .composite-score {
+      font-size: 24px;
+      font-weight: 700;
+      color: #ededee;
+    }
+
+    .composite-score.green { color: #10b981; }
+    .composite-score.amber { color: #f59e0b; }
+
+    .card-footer {
+      display: flex;
+      gap: 8px;
+      padding-top: 12px;
+      border-top: 1px solid rgba(255,255,255,0.04);
+    }
+
+    .btn {
+      flex: 1;
+      padding: 8px 12px;
+      border: none;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 120ms;
+    }
+
+    .btn-primary {
+      background: #4a90e2;
+      color: #fff;
+    }
+
+    .btn-primary:hover {
+      background: #3a7bc8;
+    }
+
+    .btn-ghost {
+      background: rgba(255,255,255,0.05);
+      color: #a4a4ad;
+      border: 1px solid rgba(255,255,255,0.06);
+    }
+
+    .btn-ghost:hover {
+      background: rgba(255,255,255,0.08);
+      color: #ededee;
+    }
+
+    ::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: rgba(255,255,255,0.1);
+      border-radius: 4px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(255,255,255,0.15);
+    }
+
+    .hidden { display: none; }
+
+    /* Modal */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.6);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      backdrop-filter: blur(4px);
+      z-index: 1000;
+    }
+
+    .modal {
+      background: #131316;
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 14px;
+      width: 90%;
+      max-width: 500px;
+      max-height: 90vh;
+      overflow-y: auto;
+      box-shadow: 0 25px 50px rgba(0,0,0,0.5);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .modal-header {
+      padding: 24px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .modal-title {
+      font-size: 18px;
+      font-weight: 600;
+    }
+
+    .modal-subtitle {
+      font-size: 12px;
+      color: #a4a4ad;
+      margin-top: 4px;
+    }
+
+    .modal-close {
+      background: none;
+      border: none;
+      color: #a4a4ad;
+      font-size: 20px;
+      cursor: pointer;
+      transition: color 120ms;
+    }
+
+    .modal-close:hover {
+      color: #ededee;
+    }
+
+    .modal-body {
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      flex: 1;
+    }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .form-label {
+      font-size: 13px;
+      font-weight: 500;
+      color: #ededee;
+    }
+
+    .form-input {
+      background: #0a0a0b;
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 6px;
+      padding: 10px 12px;
+      color: #ededee;
+      font-size: 13px;
+      font-family: inherit;
+    }
+
+    .form-input:focus {
+      outline: none;
+      border-color: rgba(74, 144, 226, 0.3);
+      background: rgba(74, 144, 226, 0.05);
+    }
+
+    .form-input::placeholder {
+      color: #6e6e78;
+    }
+
+    .form-options {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .option-btn {
+      padding: 12px;
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 8px;
+      background: rgba(255,255,255,0.02);
+      color: #a4a4ad;
+      cursor: pointer;
+      transition: all 120ms;
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .option-btn:hover {
+      background: rgba(255,255,255,0.05);
+      border-color: rgba(255,255,255,0.1);
+      color: #ededee;
+    }
+
+    .option-btn.selected {
+      background: rgba(74, 144, 226, 0.15);
+      border-color: rgba(74, 144, 226, 0.3);
+      color: #4a90e2;
+    }
+
+    .modal-footer {
+      padding: 20px 24px;
+      border-top: 1px solid rgba(255,255,255,0.06);
+      display: flex;
+      gap: 12px;
+    }
+
+    .modal-footer .btn {
+      flex: 1;
+    }
+  </style>
+</head>
+<body>
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <div class="logo">Meridian-SS</div>
+      <div class="logo-sub">Investment Research</div>
+    </div>
+
+    <div class="nav-group">
+      <div class="nav-item active" onclick="showView('portfolio')">
+        <span class="nav-icon">📊</span>
+        <span class="nav-label">Portfolio Hub</span>
+        <span class="nav-count">23</span>
+      </div>
+      <div class="nav-item" onclick="showView('journal')">
+        <span class="nav-icon">📖</span>
+        <span class="nav-label">Decision Journal</span>
+        <span class="nav-count">23</span>
+      </div>
+    </div>
+
+    <button class="new-analysis-btn" onclick="openNewAnalysisModal()">
+      <span>➕</span> New Analysis
+    </button>
+
+    <div style="flex: 1;"></div>
+
+    <div class="nav-group" style="margin-bottom: 0; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 16px;">
+      <div class="nav-item">
+        <span class="nav-icon">⚙️</span>
+        <span class="nav-label">Settings</span>
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon">📚</span>
+        <span class="nav-label">Help</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Content -->
+  <div class="main">
+    <!-- Portfolio View -->
+    <div id="portfolio-view">
+      <div class="content-header">
+        <div>
+          <div class="content-title">Portfolio Hub</div>
+          <div class="content-sub">23 analyses across Active, Closed, and Watching</div>
+        </div>
+      </div>
+
+      <div class="tabs">
+        <div class="tab active">📌 Active (3)</div>
+        <div class="tab">✓ Closed (12)</div>
+        <div class="tab">👁️ Watching (8)</div>
+      </div>
+
+      <div class="content">
+        <div class="portfolio-grid">
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <div class="card-ticker">LUMN</div>
+                <div class="card-title">Lumen Spinco</div>
+              </div>
+              <div class="card-status">
+                <span class="status-dot status-active"></span>
+                Active
+              </div>
+            </div>
+
+            <div class="card-meta">
+              <div class="meta-item">
+                <span class="meta-label">Composite</span>
+                <span class="composite-score amber">65</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">Status</span>
+                <span class="meta-value">Researching</span>
+              </div>
+            </div>
+
+            <div class="card-footer">
+              <button class="btn btn-primary">Open Analysis</button>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <div class="card-ticker">VNTR</div>
+                <div class="card-title">Vontier</div>
+              </div>
+              <div class="card-status">
+                <span class="status-dot status-active"></span>
+                Active
+              </div>
+            </div>
+
+            <div class="card-meta">
+              <div class="meta-item">
+                <span class="meta-label">Composite</span>
+                <span class="composite-score amber">58</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">Status</span>
+                <span class="meta-value">Strengthening</span>
+              </div>
+            </div>
+
+            <div class="card-footer">
+              <button class="btn btn-primary">Open Analysis</button>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <div class="card-ticker">STHO</div>
+                <div class="card-title">Stericycle Hldg</div>
+              </div>
+              <div class="card-status">
+                <span class="status-dot status-active"></span>
+                Active
+              </div>
+            </div>
+
+            <div class="card-meta">
+              <div class="meta-item">
+                <span class="meta-label">Composite</span>
+                <span class="composite-score green">82</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">Status</span>
+                <span class="meta-value">Ready</span>
+              </div>
+            </div>
+
+            <div class="card-footer">
+              <button class="btn btn-primary">Open Analysis</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Decision Journal View -->
+    <div id="journal-view" class="hidden">
+      <div class="content-header">
+        <div>
+          <div class="content-title">Decision Journal</div>
+          <div class="content-sub">Full snapshots of each decision made</div>
+        </div>
+      </div>
+
+      <div class="content">
+        <div class="dj-container">
+          <!-- Entry List -->
+          <div class="dj-sidebar">
+            <div class="dj-header">
+              📖 Entries
+              <span style="font-size: 11px; color: #6e6e78;">23</span>
+            </div>
+            <div class="dj-entry active">
+              <div class="dj-date">Today</div>
+              <div class="dj-title">LUMN Committee v3</div>
+            </div>
+            <div class="dj-entry">
+              <div class="dj-date">Yesterday</div>
+              <div class="dj-title">VNTR Setup review</div>
+            </div>
+            <div class="dj-entry">
+              <div class="dj-date">May 18</div>
+              <div class="dj-title">STHO Ready decision</div>
+            </div>
+            <div class="dj-entry">
+              <div class="dj-date">May 15</div>
+              <div class="dj-title">LTRPA Valuation</div>
+            </div>
+          </div>
+
+          <!-- Entry Detail -->
+          <div class="dj-detail">
+            <div class="dj-detail-header">
+              <div>
+                <div class="dj-detail-title">LUMN Committee Round 3</div>
+                <div class="dj-detail-date">Today at 2:34 PM · Version 3</div>
+              </div>
+              <div class="dj-status-badge">✓ Ready to decide</div>
+            </div>
+
+            <!-- Conviction & Sizing -->
+            <div class="metrics-row">
+              <div class="metric-card">
+                <div class="metric-label">Conviction</div>
+                <div class="metric-value conviction">7 / 10</div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-label">Position Size</div>
+                <div class="metric-value">7% of portfolio</div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-label">Composite Score</div>
+                <div class="metric-value composite-amber">65 / 100</div>
+              </div>
+            </div>
+
+            <!-- Dimension Scores -->
+            <div class="dj-section">
+              <div class="dj-section-label">Dimension Scores</div>
+              <div class="dims-grid">
+                <div class="dim-card dim-s">
+                  <div class="dim-letter">S</div>
+                  <div class="dim-score">88</div>
+                </div>
+                <div class="dim-card dim-b">
+                  <div class="dim-letter">B</div>
+                  <div class="dim-score">82</div>
+                </div>
+                <div class="dim-card dim-c">
+                  <div class="dim-letter">C</div>
+                  <div class="dim-score">60</div>
+                </div>
+                <div class="dim-card dim-v">
+                  <div class="dim-letter">V</div>
+                  <div class="dim-score">60</div>
+                </div>
+                <div class="dim-card dim-i">
+                  <div class="dim-letter">I</div>
+                  <div class="dim-score">48</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Analysis Summary -->
+            <div class="dj-section">
+              <div class="dj-section-label">Analysis Summary</div>
+              <div class="text-block">
+                <strong>Setup (88):</strong> $1.6B cap excludes 3 indices CTL sits in; forced selling well-quantified. Setup is played.
+              </div>
+            </div>
+
+            <!-- Coverage -->
+            <div class="dj-section">
+              <div class="dj-section-label">Criteria Coverage</div>
+              <div class="text-block">26 of 35 criteria answered · 4 blocked (awaiting DEF 14A · pension footnote detail) · 5 partial</div>
+            </div>
+
+            <!-- Primary Driver -->
+            <div class="dj-section">
+              <div class="dj-section-label">Primary Driver</div>
+              <div class="text-block">
+                Forced-selling spinoff with above-peer business quality at attractive multiples. Capital structure de-risked post-pension disclosure. Incentives now aligned via insider buybacks.
+              </div>
+            </div>
+
+            <!-- Key Risks -->
+            <div class="dj-section">
+              <div class="dj-section-label">Key Acknowledged Risks</div>
+              <div class="insight-box">
+                Index-fund forced selling could overshoot; sized at 7% to absorb a 15% drawdown. Pension transfer still materializing — committee capped Capital score at 60 pending May 23 footnote. Recommend re-run once disclosed.
+              </div>
+            </div>
+
+            <!-- Checkpoints -->
+            <div class="dj-section">
+              <div class="dj-section-label">Monitoring Checkpoints</div>
+              <div class="checkpoint-list">
+                <div class="checkpoint-item">
+                  <div class="checkpoint-icon">📋</div>
+                  <div class="checkpoint-text"><strong>Q2 10-Q</strong> · Pension funding plan disclosure (due May 23)</div>
+                </div>
+                <div class="checkpoint-item">
+                  <div class="checkpoint-icon">🎤</div>
+                  <div class="checkpoint-text"><strong>Investor Day</strong> · SoTP framework from mgmt (due Q1)</div>
+                </div>
+                <div class="checkpoint-item">
+                  <div class="checkpoint-icon">📊</div>
+                  <div class="checkpoint-text"><strong>Margin Trend</strong> · Watch for &lt;-150 bps YoY deterioration</div>
+                </div>
+                <div class="checkpoint-item">
+                  <div class="checkpoint-icon">⚠️</div>
+                  <div class="checkpoint-text"><strong>Debt Refinance</strong> · Monitor 4.5x leverage threshold</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- New Analysis Modal -->
+  <div id="new-analysis-modal" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <div>
+          <div class="modal-title">Start New Analysis</div>
+          <div class="modal-subtitle">Ticker · Parent company · Situation type</div>
+        </div>
+        <button class="modal-close" onclick="closeNewAnalysisModal()">✕</button>
+      </div>
+
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">Ticker</label>
+          <input type="text" class="form-input" placeholder="e.g. LUMN, VNTR, STHO">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Parent Company</label>
+          <input type="text" class="form-input" placeholder="e.g. CenturyLink, Fortive, Anixter">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Situation Type</label>
+          <div class="form-options">
+            <button class="option-btn selected" onclick="selectOption(this)">🔄 Spinoff</button>
+            <button class="option-btn" onclick="selectOption(this)">💵 Distressed</button>
+            <button class="option-btn" onclick="selectOption(this)">🏭 Restructure</button>
+            <button class="option-btn" onclick="selectOption(this)">⚔️ Activist</button>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Notes (optional)</label>
+          <input type="text" class="form-input" placeholder="e.g. Telecom services · Post-distribution tracking">
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="closeNewAnalysisModal()">Cancel</button>
+        <button class="btn btn-primary">Create Workspace</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function showView(view) {
+      document.getElementById('portfolio-view').classList.toggle('hidden', view !== 'portfolio');
+      document.getElementById('journal-view').classList.toggle('hidden', view !== 'journal');
+      
+      document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
+      event.target.closest('.nav-item').classList.add('active');
+    }
+
+    function openNewAnalysisModal() {
+      document.getElementById('new-analysis-modal').classList.remove('hidden');
+    }
+
+    function closeNewAnalysisModal() {
+      document.getElementById('new-analysis-modal').classList.add('hidden');
+    }
+
+    function selectOption(btn) {
+      btn.parentElement.querySelectorAll('.option-btn').forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+    }
+
+    // Close modal when clicking overlay
+    document.addEventListener('click', function(e) {
+      const modal = document.getElementById('new-analysis-modal');
+      if (e.target === modal) {
+        closeNewAnalysisModal();
+      }
+    });
+  </script>
+</body>
+</html>

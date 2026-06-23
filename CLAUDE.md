@@ -20,9 +20,15 @@ streamlit run app.py
 # Open http://localhost:8501 and enter your OpenAI key in the sidebar
 ```
 
-No build step, lint config, or test suite. The running app is the artifact.
+No build step or lint config. Tests cover pure helper functions only (no Streamlit UI, no API calls):
+
+```bash
+python3 test_app.py          # runs ~40 unit tests; all should pass with no keys
+```
 
 **Deployment rule:** Always `git push` immediately after committing and verify with `git log --oneline origin/main..HEAD` (should be empty) before claiming anything is deployed. Streamlit Cloud deploys from GitHub — local commits alone change nothing.
+
+**APP_VERSION** is defined at the top of `app.py` (`YYYY-MM-DD-vN` format). Bump it on every meaningful commit so the sidebar reflects what's deployed.
 
 ---
 
@@ -40,6 +46,7 @@ No build step, lint config, or test suite. The running app is the artifact.
 | 8 ✅ | `"rebalancing"` | `core/rebalancing_workflow.py` | ⚖️ Layer 8 — Stateful Rebalancing |
 | 9 ✅ | `"committee"` | `core/investment_committee.py` | 🏛️ Layer 9 — Investment Committee |
 | 10 ✅ | `"integrated"` | `core/cost.py` | 🏗️ Layer 10 — Integrated Platform |
+| Special Situations Lab ✅ | `"spinoff_lab"` | `special_situations/spinoff_lab.py` | 🔬 Special Situations Lab |
 
 ---
 
@@ -52,6 +59,9 @@ The app uses **sidebar buttons + `st.session_state.active_layer`**, not `st.tabs
 Adding a new layer:
 1. Add a sidebar button entry to the loop in `app.py` (around line 80)
 2. Add a corresponding `if st.session_state.active_layer == "<value>":` block before the Special Situations Lab section
+3. Bump the hardcoded `layers_done` integer in the sidebar progress bar (around line 109 in `app.py`)
+
+**Special Situations Lab** sits outside the numbered layer loop. Its sidebar button is added separately (after the divider following Layer 10, around line 101). It is rendered via `spinoff_lab.render()` from `special_situations/spinoff_lab.py`, which itself imports from the `spinoff/` subpackage (`models`, `greenblatt_scorecard`, `promise_tracker`, `thesis_tracker`, `cost_tracker`). Sample CSV data lives in `data/spinoffs/`.
 
 ---
 
@@ -59,7 +69,7 @@ Adding a new layer:
 
 1. **Navigation uses named `active_layer` strings** — never `tab1`, `tab2`, or `st.tabs()`
 
-2. **Dataclass fields are frozen** — never add/remove fields from `PromptResult`, `GuardrailResult`, `SearchResult`, `RAGResponse`
+2. **Dataclass fields are frozen** — never add/remove fields from `PromptResult`, `GuardrailResult`, `SearchResult`, `RAGResponse` (defined in `core/dataclasses.py`)
 
 3. **ChromaDB path is hardcoded:** `/tmp/meridian_chromadb` — never `tempfile` or `os.path.expanduser`
 
@@ -125,6 +135,15 @@ class FinancialGuardrails:
     def safe_execute(self, prompt_engine, prompt_function, *args, **kwargs) -> Tuple[bool, PromptResult]
 ```
 
+### Layer 2 — `core/market.py`
+```python
+class MarketDataFetcher:
+    def fetch_portfolio(self, holdings: Dict[str, float]) -> Tuple[List[Dict], float, List[str]]
+    # holdings: {ticker: shares}  e.g. {"AAPL": 100, "MSFT": 50}
+    # Returns (rows, total_value_usd, error_list)
+    # Each row: Ticker, Shares, Price ($), Day Chg %, Value ($), 1Y Return %, Sector, Beta
+```
+
 ### Layer 3 — `core/rag.py`, `core/edgar.py`, `core/chunking.py`
 ```python
 class DocumentProcessor:
@@ -146,7 +165,17 @@ build_chroma_filter(filters)  # builds ChromaDB $and filter
 route_query(question)  # → "structured" | "narrative" | "both"
 ```
 
+**Single-company constraint:** only one company's data can be in ChromaDB at a time. Switching tickers calls `_clear_for_new_company()`, which wipes `rag_system`, `all_chunks`, `loaded_docs`, and `xbrl_by_ticker` from session state. Never mix data from multiple companies.
+
 **Dual-store pattern:** quantitative questions (revenue, EPS) → XBRL; qualitative (risk factors, MD&A) → RAG.
+
+```python
+# Unified retrieval (core/rag.py, imported in app.py)
+retrieve(question, ticker, fiscal_year, form_type, quarter, rag, xbrl_facts)
+# Routes to XBRL for structured queries, RAG for narrative — returns combined context string
+```
+
+**Section patterns** used by `_split_into_sections()` live in `core/constants.py` and are imported at the top of `app.py`: `SECTION_PATTERNS_10K`, `SECTION_PATTERNS_10Q`, `SECTION_PATTERNS_FORM10_EXTRA`, `STATEMENT_PATTERNS`, `MDNA_SUBSECTION_PATTERNS`, `STRUCTURED_SIGNALS`, `NARRATIVE_SIGNALS`.
 
 **ChromaDB config:**
 ```python
@@ -155,6 +184,20 @@ CHROMA_COLLECTION  = "meridian_docs"            # cosine similarity, score = 1 -
 ```
 
 **Section-aware chunking** (`core/chunking.py`): `_split_into_sections()` splits filings into 9 named sections (business, risk_factors, mdna, financial_stmts, footnotes, quantitative, controls, legal, default), each with its own chunking strategy and size/overlap.
+
+### Layer 4 — `core/evaluation.py`
+```python
+BASE_MODEL       = "gpt-3.5-turbo-0125"
+FINE_TUNED_MODEL = "ft:gpt-3.5-turbo-0125:personal::DZTJSppd"
+
+@st.cache_resource
+def load_evaluator() -> Tuple[SentenceTransformer, RougeScorer]  # "all-MiniLM-L6-v2"
+
+class FinancialEvaluator:
+    def evaluate_semantic_similarity(self, pred: str, ref: str) -> float  # cosine sim, 0–1
+    def check_compliance(self, text: str) -> float  # checks "past performance"+"does not guarantee" → 0.0/0.5/1.0
+```
+**Training data:** `training_data.jsonl` at repo root — 56 fine-tuning examples used to create `FINE_TUNED_MODEL`.
 
 ### Layer 5 — `core/safety.py`
 ```python
@@ -237,6 +280,32 @@ check_budget() -> (under_budget, spent, cap)   # cap set via MERIDIAN_DAILY_CAP 
 read_log() -> list[dict]   # all entries, newest first
 ```
 Log written to `/tmp/meridian_cost_log.jsonl`. Call `log_call()` at the end of every LLM-using function.
+
+---
+
+## Special Situations Lab — Spinoff Package
+
+The `spinoff/` package defines models and trackers used by `special_situations/spinoff_lab.py`.
+
+```python
+# spinoff/models.py — frozen dataclasses (do not add/remove fields)
+class SpinoffEvent       # ticker, parent_ticker, company_name, spinoff_date, exchange, sector, cik, notes
+class GreenblattScore    # 7 criteria × 0–5 each; .total property; .tier: "Deep Dive"(≥35) | "Watchlist"(25–34) | "Pass"(<25)
+class ManagementPromise  # status: "Pending" | "Kept" | "Broken" | "Partially Met"
+class ThesisEntry        # current_thesis: "Active" | "Broken" | "Realized"
+class CostEntry          # category: "OpenAI" | "Data" | "Research" | "Other"
+```
+
+**`spinoff/filing_workflow.py` is stub-only** — all three functions (`fetch_spinoff_10k`, `fetch_spinoff_form10`, `fetch_spinoff_xbrl`, `index_spinoff_filing`) raise `NotImplementedError`. Call `fetch_edgar_filing()` and `fetch_xbrl_facts()` from `core/edgar.py` directly instead.
+
+---
+
+## Testing
+
+`test_app.py` tests pure helper functions (no Streamlit UI, no API calls). It mocks `streamlit` and heavy optional deps before importing `app`. The key constraints when adding new tests:
+- Set `_st.session_state = _MockSessionState(active_layer="")` so no layer block runs at import
+- Set `_st.cache_resource = lambda fn: fn` to avoid caching decorator errors
+- Add any new heavy deps to the mock list at the top of `test_app.py`
 
 ---
 
