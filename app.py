@@ -7,7 +7,7 @@ Classes match exactly what's in:
   - week3_capstone.ipynb: SearchResult, RAGResponse, DocumentProcessor, RAGSystem
 """
 
-APP_VERSION = "2026-05-19-v8"
+APP_VERSION = "2026-07-25-v1"
 
 import streamlit as st
 import os
@@ -19,6 +19,7 @@ from datetime import datetime
 from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass
 from special_situations import spinoff_lab
+from spinoff_research import review_ui
 from core.constants import (
     SECTION_PATTERNS_10K, SECTION_PATTERNS_FORM10_EXTRA, SECTION_PATTERNS_10Q,
     STATEMENT_PATTERNS, MDNA_SUBSECTION_PATTERNS,
@@ -103,6 +104,12 @@ with st.sidebar:
         st.session_state.active_layer = "spinoff_lab"
         st.rerun()
     st.caption("Spinoff Research Lab · Greenblatt screen · thesis tracker")
+
+    if st.button("📋 Spin-off Field Review", use_container_width=True,
+                 type="primary" if st.session_state.active_layer == "spinoff_research" else "secondary"):
+        st.session_state.active_layer = "spinoff_research"
+        st.rerun()
+    st.caption("SEC/XBRL/Form 4 extraction · review, approve, correct field values")
 
     st.divider()
     # Progress indicator
@@ -2281,3 +2288,10 @@ if st.session_state.active_layer == "integrated":
 # ══════════════════════════════════════════════════════════════════════════════
 if st.session_state.active_layer == "spinoff_lab":
     spinoff_lab.render()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SPIN-OFF FIELD REVIEW (Phase 7 — spinoff_research prototype)
+# ══════════════════════════════════════════════════════════════════════════════
+if st.session_state.active_layer == "spinoff_research":
+    review_ui.render()
