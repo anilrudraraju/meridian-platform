@@ -3,3 +3,8 @@ __pycache__/
 *.pyc
 .DS_Store
 *.bak
+.env
+
+# Rich's proprietary spin-off research data — local only, never committed
+data/input/
+spinoff_research/data/

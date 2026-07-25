@@ -20,9 +20,15 @@ streamlit run app.py
 # Open http://localhost:8501 and enter your OpenAI key in the sidebar
 ```
 
-No build step, lint config, or test suite. The running app is the artifact.
+No build step or lint config. Tests cover pure helper functions only (no Streamlit UI, no API calls):
+
+```bash
+python3 test_app.py          # runs ~40 unit tests; all should pass with no keys
+```
 
 **Deployment rule:** Always `git push` immediately after committing and verify with `git log --oneline origin/main..HEAD` (should be empty) before claiming anything is deployed. Streamlit Cloud deploys from GitHub — local commits alone change nothing.
+
+**APP_VERSION** is defined at the top of `app.py` (`YYYY-MM-DD-vN` format). Bump it on every meaningful commit so the sidebar reflects what's deployed.
 
 ---
 
@@ -40,6 +46,7 @@ No build step, lint config, or test suite. The running app is the artifact.
 | 8 ✅ | `"rebalancing"` | `core/rebalancing_workflow.py` | ⚖️ Layer 8 — Stateful Rebalancing |
 | 9 ✅ | `"committee"` | `core/investment_committee.py` | 🏛️ Layer 9 — Investment Committee |
 | 10 ✅ | `"integrated"` | `core/cost.py` | 🏗️ Layer 10 — Integrated Platform |
+| Special Situations Lab ✅ | `"spinoff_lab"` | `special_situations/spinoff_lab.py` | 🔬 Special Situations Lab |
 
 ---
 
@@ -53,13 +60,15 @@ Adding a new layer:
 1. Add a sidebar button entry to the loop in `app.py` (around line 80)
 2. Add a corresponding `if st.session_state.active_layer == "<value>":` block before the Special Situations Lab section
 
+**Special Situations Lab** sits outside the numbered layer loop. Its sidebar button is added separately (after the divider following Layer 10, around line 101). It is rendered via `spinoff_lab.render()` from `special_situations/spinoff_lab.py`, which itself imports from the `spinoff/` subpackage (`models`, `greenblatt_scorecard`, `promise_tracker`, `thesis_tracker`, `cost_tracker`). Sample CSV data lives in `data/spinoffs/`.
+
 ---
 
 ## Critical Coding Rules
 
 1. **Navigation uses named `active_layer` strings** — never `tab1`, `tab2`, or `st.tabs()`
 
-2. **Dataclass fields are frozen** — never add/remove fields from `PromptResult`, `GuardrailResult`, `SearchResult`, `RAGResponse`
+2. **Dataclass fields are frozen** — never add/remove fields from `PromptResult`, `GuardrailResult`, `SearchResult`, `RAGResponse` (defined in `core/dataclasses.py`)
 
 3. **ChromaDB path is hardcoded:** `/tmp/meridian_chromadb` — never `tempfile` or `os.path.expanduser`
 
@@ -146,7 +155,17 @@ build_chroma_filter(filters)  # builds ChromaDB $and filter
 route_query(question)  # → "structured" | "narrative" | "both"
 ```
 
+**Single-company constraint:** only one company's data can be in ChromaDB at a time. Switching tickers calls `_clear_for_new_company()`, which wipes `rag_system`, `all_chunks`, `loaded_docs`, and `xbrl_by_ticker` from session state. Never mix data from multiple companies.
+
 **Dual-store pattern:** quantitative questions (revenue, EPS) → XBRL; qualitative (risk factors, MD&A) → RAG.
+
+```python
+# Unified retrieval (core/rag.py, imported in app.py)
+retrieve(question, ticker, fiscal_year, form_type, quarter, rag, xbrl_facts)
+# Routes to XBRL for structured queries, RAG for narrative — returns combined context string
+```
+
+**Section patterns** used by `_split_into_sections()` live in `core/constants.py` and are imported at the top of `app.py`: `SECTION_PATTERNS_10K`, `SECTION_PATTERNS_10Q`, `SECTION_PATTERNS_FORM10_EXTRA`, `STATEMENT_PATTERNS`, `MDNA_SUBSECTION_PATTERNS`, `STRUCTURED_SIGNALS`, `NARRATIVE_SIGNALS`.
 
 **ChromaDB config:**
 ```python
@@ -155,6 +174,14 @@ CHROMA_COLLECTION  = "meridian_docs"            # cosine similarity, score = 1 -
 ```
 
 **Section-aware chunking** (`core/chunking.py`): `_split_into_sections()` splits filings into 9 named sections (business, risk_factors, mdna, financial_stmts, footnotes, quantitative, controls, legal, default), each with its own chunking strategy and size/overlap.
+
+### Layer 4 — `core/evaluation.py`
+```python
+class FinancialEvaluator:
+    def evaluate_semantic_similarity(self, pred: str, ref: str) -> float  # sentence-transformers cosine sim
+    def check_compliance(self, text: str) -> float                       # fraction of required disclaimer phrases present
+```
+Compares `BASE_MODEL` ("gpt-3.5-turbo-0125") vs `FINE_TUNED_MODEL` (the `ft:...` id above). `load_evaluator()` is `@st.cache_resource`-cached since it loads a SentenceTransformer.
 
 ### Layer 5 — `core/safety.py`
 ```python
