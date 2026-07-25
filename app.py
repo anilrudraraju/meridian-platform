@@ -7,7 +7,7 @@ Classes match exactly what's in:
   - week3_capstone.ipynb: SearchResult, RAGResponse, DocumentProcessor, RAGSystem
 """
 
-APP_VERSION = "2026-07-25-v1"
+APP_VERSION = "2026-07-25-v2"
 
 import streamlit as st
 import os

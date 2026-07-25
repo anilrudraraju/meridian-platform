@@ -59,6 +59,9 @@ The app uses **sidebar buttons + `st.session_state.active_layer`**, not `st.tabs
 Adding a new layer:
 1. Add a sidebar button entry to the loop in `app.py` (around line 80)
 2. Add a corresponding `if st.session_state.active_layer == "<value>":` block before the Special Situations Lab section
+3. Bump the hardcoded `layers_done` integer in the sidebar progress bar (around line 109 in `app.py`)
+
+**Special Situations Lab** sits outside the numbered layer loop. Its sidebar button is added separately (after the divider following Layer 10, around line 101). It is rendered via `spinoff_lab.render()` from `special_situations/spinoff_lab.py`, which itself imports from the `spinoff/` subpackage (`models`, `greenblatt_scorecard`, `promise_tracker`, `thesis_tracker`, `cost_tracker`). Sample CSV data lives in `data/spinoffs/`.
 
 **Special Situations Lab** sits outside the numbered layer loop. Its sidebar button is added separately (after the divider following Layer 10, around line 101). It is rendered via `spinoff_lab.render()` from `special_situations/spinoff_lab.py`, which itself imports from the `spinoff/` subpackage (`models`, `greenblatt_scorecard`, `promise_tracker`, `thesis_tracker`, `cost_tracker`). Sample CSV data lives in `data/spinoffs/`.
 
@@ -134,6 +137,15 @@ class FinancialGuardrails:
     def safe_execute(self, prompt_engine, prompt_function, *args, **kwargs) -> Tuple[bool, PromptResult]
 ```
 
+### Layer 2 — `core/market.py`
+```python
+class MarketDataFetcher:
+    def fetch_portfolio(self, holdings: Dict[str, float]) -> Tuple[List[Dict], float, List[str]]
+    # holdings: {ticker: shares}  e.g. {"AAPL": 100, "MSFT": 50}
+    # Returns (rows, total_value_usd, error_list)
+    # Each row: Ticker, Shares, Price ($), Day Chg %, Value ($), 1Y Return %, Sector, Beta
+```
+
 ### Layer 3 — `core/rag.py`, `core/edgar.py`, `core/chunking.py`
 ```python
 class DocumentProcessor:
@@ -177,11 +189,18 @@ CHROMA_COLLECTION  = "meridian_docs"            # cosine similarity, score = 1 -
 
 ### Layer 4 — `core/evaluation.py`
 ```python
+BASE_MODEL       = "gpt-3.5-turbo-0125"
+FINE_TUNED_MODEL = "ft:gpt-3.5-turbo-0125:personal::DZTJSppd"
+
+@st.cache_resource
+def load_evaluator() -> Tuple[SentenceTransformer, RougeScorer]  # "all-MiniLM-L6-v2"
+
 class FinancialEvaluator:
-    def evaluate_semantic_similarity(self, pred: str, ref: str) -> float  # sentence-transformers cosine sim
-    def check_compliance(self, text: str) -> float                       # fraction of required disclaimer phrases present
+    def evaluate_semantic_similarity(self, pred: str, ref: str) -> float  # sentence-transformers cosine sim, 0–1
+    def check_compliance(self, text: str) -> float  # checks "past performance"+"does not guarantee" → 0.0/0.5/1.0
 ```
-Compares `BASE_MODEL` ("gpt-3.5-turbo-0125") vs `FINE_TUNED_MODEL` (the `ft:...` id above). `load_evaluator()` is `@st.cache_resource`-cached since it loads a SentenceTransformer.
+Compares `BASE_MODEL` vs `FINE_TUNED_MODEL`. `load_evaluator()` is `@st.cache_resource`-cached since it loads a SentenceTransformer.
+**Training data:** `training_data.jsonl` at repo root — 56 fine-tuning examples used to create `FINE_TUNED_MODEL`.
 
 ### Layer 5 — `core/safety.py`
 ```python
@@ -264,6 +283,32 @@ check_budget() -> (under_budget, spent, cap)   # cap set via MERIDIAN_DAILY_CAP 
 read_log() -> list[dict]   # all entries, newest first
 ```
 Log written to `/tmp/meridian_cost_log.jsonl`. Call `log_call()` at the end of every LLM-using function.
+
+---
+
+## Special Situations Lab — Spinoff Package
+
+The `spinoff/` package defines models and trackers used by `special_situations/spinoff_lab.py`.
+
+```python
+# spinoff/models.py — frozen dataclasses (do not add/remove fields)
+class SpinoffEvent       # ticker, parent_ticker, company_name, spinoff_date, exchange, sector, cik, notes
+class GreenblattScore    # 7 criteria × 0–5 each; .total property; .tier: "Deep Dive"(≥35) | "Watchlist"(25–34) | "Pass"(<25)
+class ManagementPromise  # status: "Pending" | "Kept" | "Broken" | "Partially Met"
+class ThesisEntry        # current_thesis: "Active" | "Broken" | "Realized"
+class CostEntry          # category: "OpenAI" | "Data" | "Research" | "Other"
+```
+
+**`spinoff/filing_workflow.py` is stub-only** — all three functions (`fetch_spinoff_10k`, `fetch_spinoff_form10`, `fetch_spinoff_xbrl`, `index_spinoff_filing`) raise `NotImplementedError`. Call `fetch_edgar_filing()` and `fetch_xbrl_facts()` from `core/edgar.py` directly instead.
+
+---
+
+## Testing
+
+`test_app.py` tests pure helper functions (no Streamlit UI, no API calls). It mocks `streamlit` and heavy optional deps before importing `app`. The key constraints when adding new tests:
+- Set `_st.session_state = _MockSessionState(active_layer="")` so no layer block runs at import
+- Set `_st.cache_resource = lambda fn: fn` to avoid caching decorator errors
+- Add any new heavy deps to the mock list at the top of `test_app.py`
 
 ---
 

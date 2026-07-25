@@ -539,6 +539,410 @@ def _tab_cost_log() -> None:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# SPINOFF COMMITTEE — spinoff-specific agents + inline runner
+# ══════════════════════════════════════════════════════════════════════════════
+
+_SPINOFF_AGENTS = [
+    {
+        "role": "Spinoff Opportunity Analyst",
+        "icon": "🔍",
+        "system": (
+            "You are a special situations analyst specializing in corporate spinoffs following "
+            "Joel Greenblatt's framework. You identify forced selling dynamics, Wall Street neglect, "
+            "hidden value, and insider alignment. Cite specific numbers from the evidence provided. "
+            "Be direct and keep responses under 200 words."
+        ),
+    },
+    {
+        "role": "Value & Quality Analyst",
+        "icon": "💰",
+        "system": (
+            "You are a value investor in the Graham/Greenblatt tradition assessing standalone business quality. "
+            "Focus on returns on capital, FCF generation, balance sheet strength, and EV/EBIT vs peers. "
+            "Demand numbers before accepting qualitative claims. "
+            "Be direct, data-grounded, and keep responses under 200 words."
+        ),
+    },
+    {
+        "role": "Devil's Advocate",
+        "icon": "⚠️",
+        "system": (
+            "Your job is to steelman the bear case on this spinoff. "
+            "Surface what bulls are ignoring: hidden liabilities, management credibility gaps, "
+            "balance sheet traps, or whether the parent dumped a bad business on shareholders. "
+            "Be specific, challenging, and keep responses under 200 words."
+        ),
+    },
+]
+
+_SP_ROUND1 = """Spinoff Investment Proposal:
+{proposal}
+
+Provide your initial position:
+1. Your stance given your role (1 sentence)
+2. Top 2 signals that support this investment
+3. Top 2 risks or gaps you see
+4. Preliminary vote: APPROVE, REJECT, or MODIFY
+
+Stay under 200 words. Cite specific numbers where available."""
+
+_SP_ROUND2 = """Spinoff Investment Proposal:
+{proposal}
+
+Other committee members' initial positions:
+{context}
+
+Respond to the discussion:
+1. Challenge the weakest argument from another member (name them explicitly)
+2. Acknowledge one valid point from another member (name them)
+3. State whether your position has shifted and why
+
+Stay under 200 words. Be direct."""
+
+_SP_ROUND3 = """Spinoff Investment Proposal:
+{proposal}
+
+Full committee discussion:
+{context}
+
+Cast your final vote. Use exactly this format:
+
+VOTE: [APPROVE / REJECT / MODIFY]
+JUSTIFICATION: [2–3 sentences citing specific evidence from the proposal or debate]"""
+
+
+def _run_spinoff_committee(proposal: str, on_message=None) -> dict:
+    """3-round spinoff committee debate with purpose-built agents."""
+    import openai
+    from core.investment_committee import MessageBus, Message
+    from datetime import datetime
+
+    client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+    bus = MessageBus()
+    agent_outputs = []
+
+    def _call(system, user):
+        resp = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+            temperature=0.7,
+            max_tokens=400,
+        )
+        return resp.choices[0].message.content.strip()
+
+    def _parse_vote(text):
+        u = text.upper()
+        if "APPROVE" in u: return "APPROVE"
+        if "REJECT" in u: return "REJECT"
+        if "MODIFY" in u: return "MODIFY"
+        return "ABSTAIN"
+
+    # Round 1 — Initial positions
+    for agent in _SPINOFF_AGENTS:
+        content = _call(agent["system"], _SP_ROUND1.format(proposal=proposal))
+        bus.send(Message(sender=agent["role"], recipient="all", content=content,
+                         timestamp=datetime.now().isoformat(), message_type="proposal", round_num=1))
+        agent_outputs.append({"round": 1, "agent": agent["role"], "icon": agent["icon"], "content": content})
+        if on_message:
+            on_message(1, agent["role"], agent["icon"], "proposal", content)
+
+    # Round 2 — Challenges
+    for agent in _SPINOFF_AGENTS:
+        context = bus.context_for(agent["role"], before_round=2)
+        content = _call(agent["system"], _SP_ROUND2.format(proposal=proposal, context=context))
+        bus.send(Message(sender=agent["role"], recipient="all", content=content,
+                         timestamp=datetime.now().isoformat(), message_type="challenge", round_num=2))
+        agent_outputs.append({"round": 2, "agent": agent["role"], "icon": agent["icon"], "content": content})
+        if on_message:
+            on_message(2, agent["role"], agent["icon"], "challenge", content)
+
+    # Round 3 — Final vote
+    votes = {}
+    for agent in _SPINOFF_AGENTS:
+        content = _call(agent["system"], _SP_ROUND3.format(proposal=proposal, context=bus.full_transcript()))
+        vote = _parse_vote(content)
+        votes[agent["role"]] = {"vote": vote, "justification": content, "icon": agent["icon"]}
+        bus.send(Message(sender=agent["role"], recipient="all", content=content,
+                         timestamp=datetime.now().isoformat(), message_type="vote", round_num=3))
+        agent_outputs.append({"round": 3, "agent": agent["role"], "icon": agent["icon"], "content": content, "vote": vote})
+        if on_message:
+            on_message(3, agent["role"], agent["icon"], "vote", content)
+
+    # Tally
+    tally: dict = {}
+    for v in votes.values():
+        tally[v["vote"]] = tally.get(v["vote"], 0) + 1
+    n = len(_SPINOFF_AGENTS)
+    if tally.get("APPROVE", 0) > n / 2:
+        outcome = "APPROVED"
+    elif tally.get("REJECT", 0) > n / 2:
+        outcome = "REJECTED"
+    elif tally.get("MODIFY", 0) > n / 2:
+        outcome = "MODIFICATION REQUIRED"
+    else:
+        outcome = "NO CONSENSUS — REQUIRES FURTHER DISCUSSION"
+
+    return {
+        "proposal": proposal,
+        "bus": bus,
+        "votes": votes,
+        "tally": tally,
+        "outcome": outcome,
+        "agent_outputs": agent_outputs,
+        "message_count": len(bus.messages),
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 7 — Research Chat
+# ══════════════════════════════════════════════════════════════════════════════
+def _tab_research_chat() -> None:
+    st.subheader("💬 Research Chat")
+    st.caption("Ask questions about the indexed company — answers grounded in SEC filings and research.")
+
+    rag = st.session_state.get("rag_system")
+    rag_count = rag.count() if rag else 0
+    xbrl_tickers = list(st.session_state.get("xbrl_by_ticker", {}).keys())
+
+    if rag_count > 0 or xbrl_tickers:
+        ticker_str = ", ".join(xbrl_tickers) if xbrl_tickers else "indexed docs"
+        st.success(f"✅ {rag_count} chunks indexed · **{ticker_str}** — chat is grounded in your research data.")
+    else:
+        st.warning(
+            "No filings indexed yet. Go to **Layer 3 — Document RAG**, fetch the LION 10-K from EDGAR, "
+            "then return here to chat."
+        )
+        return
+
+    if not os.environ.get("OPENAI_API_KEY"):
+        st.warning("Enter your OpenAI API key in the sidebar.")
+        return
+
+    if "spinoff_chat_history" not in st.session_state:
+        st.session_state.spinoff_chat_history = []
+
+    _, col_btn = st.columns([5, 1])
+    with col_btn:
+        if st.button("🗑️ Clear", key="clear_spinoff_chat"):
+            st.session_state.spinoff_chat_history = []
+            st.rerun()
+
+    # Suggested questions when chat is empty
+    if not st.session_state.spinoff_chat_history:
+        st.markdown("**Try asking:**")
+        suggestions = [
+            "What is the business model and how does it make money?",
+            "Why was this company spun off from its parent?",
+            "What are the key risk factors post-spinoff?",
+            "What does management say about capital allocation?",
+            "What is the leverage and debt maturity profile?",
+            "What insider ownership or equity grants exist?",
+        ]
+        cols = st.columns(2)
+        for i, q in enumerate(suggestions):
+            if cols[i % 2].button(q, key=f"sugg_{i}", use_container_width=True):
+                st.session_state.spinoff_chat_history.append({"role": "user", "content": q})
+                st.rerun()
+
+    # Render existing messages
+    for msg in st.session_state.spinoff_chat_history:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+            if msg.get("sources"):
+                with st.expander(f"📎 {len(msg['sources'])} source(s)", expanded=False):
+                    for src in msg["sources"]:
+                        st.caption(f"**{src.source}** · relevance {src.relevance_score:.2f}")
+                        st.caption(src.content[:200] + ("..." if len(src.content) > 200 else ""))
+
+    # Chat input
+    question = st.chat_input("Ask about this spinoff...")
+    if question:
+        st.session_state.spinoff_chat_history.append({"role": "user", "content": question})
+        with st.chat_message("user"):
+            st.markdown(question)
+        with st.chat_message("assistant"):
+            with st.spinner("Searching filings..."):
+                try:
+                    response = rag.answer_question(question, k=10)
+                    st.markdown(response.answer)
+                    st.caption(f"Confidence: {response.confidence}")
+                    if response.sources:
+                        with st.expander(f"📎 {len(response.sources)} source(s)", expanded=False):
+                            for src in response.sources:
+                                st.caption(f"**{src.source}** · relevance {src.relevance_score:.2f}")
+                                st.caption(src.content[:200] + ("..." if len(src.content) > 200 else ""))
+                    st.session_state.spinoff_chat_history.append({
+                        "role": "assistant",
+                        "content": response.answer,
+                        "sources": response.sources,
+                    })
+                except Exception as e:
+                    err = f"Error: {e}"
+                    st.error(err)
+                    st.session_state.spinoff_chat_history.append({"role": "assistant", "content": err})
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 8 — IC Debate
+# ══════════════════════════════════════════════════════════════════════════════
+def _tab_ic_debate() -> None:
+    st.subheader("🏛️ Investment Committee Debate")
+    st.caption(
+        "Three spinoff specialists debate your thesis using evidence from indexed SEC filings.  \n"
+        "**🔍 Spinoff Opportunity Analyst** · **💰 Value & Quality Analyst** · **⚠️ Devil's Advocate**"
+    )
+
+    if not os.environ.get("OPENAI_API_KEY"):
+        st.warning("Enter your OpenAI API key in the sidebar.")
+        return
+
+    theses: List[ThesisEntry] = st.session_state.get(_SS_THESES, [])
+    watchlist: pd.DataFrame = st.session_state.get(_SS_WATCHLIST, pd.DataFrame())
+
+    tickers_from_theses = [t.ticker for t in theses]
+    wl_col = "ticker" if not watchlist.empty and "ticker" in watchlist.columns else None
+    tickers_from_watchlist = list(watchlist[wl_col].dropna().str.upper()) if wl_col else []
+    all_tickers = sorted(set(tickers_from_theses + tickers_from_watchlist) - {"LION"})
+
+    col_a, col_b = st.columns([1, 2])
+    with col_a:
+        selected_ticker = st.selectbox(
+            "Spinoff ticker",
+            ["LION"] + all_tickers,
+            key="ic_ticker_select",
+        )
+
+    thesis = next((t for t in theses if t.ticker == selected_ticker), None)
+    with col_b:
+        if thesis:
+            excerpt = thesis.hypothesis[:160] + "..." if len(thesis.hypothesis) > 160 else thesis.hypothesis
+            st.info(f"**{selected_ticker}** — {excerpt}")
+        else:
+            st.caption(f"No saved thesis for {selected_ticker}. Enter your proposal below.")
+
+    # RAG status
+    rag = st.session_state.get("rag_system")
+    rag_count = rag.count() if rag else 0
+    xbrl_by_ticker = st.session_state.get("xbrl_by_ticker", {})
+    indexed_tickers = list(xbrl_by_ticker.keys())
+
+    if rag_count > 0:
+        st.success(
+            f"✅ {rag_count} chunks indexed"
+            + (f" · **{', '.join(indexed_tickers)}**" if indexed_tickers else "")
+            + " — committee will cite filing evidence in their arguments."
+        )
+    else:
+        st.info("💡 No filings indexed. Go to Layer 3 to index LION filings for a grounded debate. Committee can still debate from the thesis text.")
+
+    st.divider()
+
+    # Auto-fill proposal from thesis tracker
+    default_proposal = ""
+    if thesis:
+        default_proposal = (
+            f"Spinoff: {selected_ticker}\n\n"
+            f"Thesis: {thesis.hypothesis}\n\n"
+            f"Primary Catalyst: {thesis.catalyst}\n"
+            f"Target Price: ${thesis.target_price:.2f}"
+        )
+
+    proposal_text = st.text_area(
+        "Investment proposal for the committee",
+        value=default_proposal,
+        height=160,
+        key="ic_debate_proposal",
+        placeholder=(
+            "Describe the LION spinoff thesis — e.g. spun off from [Parent], trades at [X]x EV/EBIT, "
+            "[Y] index funds forced to sell, management holds [Z]% equity..."
+        ),
+    )
+
+    run_debate = st.button(
+        "🏛️ Convene Committee",
+        type="primary",
+        disabled=not proposal_text.strip(),
+        key="run_spinoff_debate",
+    )
+
+    if run_debate and proposal_text.strip():
+        st.session_state.pop("sl_ic_result", None)
+
+        # Enrich proposal with top RAG hits
+        enriched = proposal_text.strip()
+        if rag and rag_count > 0:
+            try:
+                hits = rag.search(proposal_text[:300], k=5)
+                if hits:
+                    snippets = "\n\n".join(f"[{r.source}]: {r.content[:300]}" for r in hits)
+                    enriched += f"\n\nEvidence from SEC filings:\n{snippets}"
+            except Exception:
+                pass
+
+        _ROUND_LABELS = {1: "📋 Initial Position", 2: "⚔️ Challenge", 3: "🗳️ Final Vote"}
+
+        with st.status("🏛️ Spinoff Committee in session...", expanded=True) as _status:
+            _status.write("Convening Spinoff Opportunity Analyst, Value & Quality Analyst, and Devil's Advocate...")
+
+            def _on_msg(round_num, agent_role, icon, msg_type, content):
+                _status.write(f"{icon} **{agent_role}** — {_ROUND_LABELS[round_num]}")
+
+            try:
+                result = _run_spinoff_committee(enriched, on_message=_on_msg)
+                st.session_state["sl_ic_result"] = result
+                _status.update(label="✅ Committee deliberation complete", state="complete", expanded=False)
+            except Exception as e:
+                _status.update(label="❌ Error", state="error")
+                st.error(f"Error: {e}")
+
+    # ── Results ────────────────────────────────────────────────────────────────
+    if "sl_ic_result" in st.session_state:
+        result = st.session_state["sl_ic_result"]
+        outcome = result["outcome"]
+        tally = result["tally"]
+
+        st.divider()
+
+        if outcome == "APPROVED":
+            st.success(f"## ✅ {outcome}")
+        elif outcome == "REJECTED":
+            st.error(f"## ❌ {outcome}")
+        elif outcome == "MODIFICATION REQUIRED":
+            st.warning(f"## 🔧 {outcome}")
+        else:
+            st.warning(f"## ⚠️ {outcome}")
+
+        tally_cols = st.columns(len(tally) + 1)
+        tally_cols[0].metric("Messages exchanged", result["message_count"])
+        for i, (vote_type, count) in enumerate(tally.items(), 1):
+            tally_cols[i].metric(vote_type, f"{count} / {len(result['votes'])}")
+
+        st.divider()
+
+        tab_r1, tab_r2, tab_r3 = st.tabs(["📋 Round 1 — Positions", "⚔️ Round 2 — Challenges", "🗳️ Round 3 — Votes"])
+
+        def _render_round(tab, round_num):
+            with tab:
+                messages = result["bus"].get_by_round(round_num)
+                for msg in messages:
+                    icon = next(
+                        (a["icon"] for a in result["agent_outputs"]
+                         if a["agent"] == msg.sender and a["round"] == round_num),
+                        "🤖",
+                    )
+                    with st.expander(f"{icon} {msg.sender}", expanded=True):
+                        if round_num == 3:
+                            vote = result["votes"].get(msg.sender, {}).get("vote", "")
+                            badge = {"APPROVE": "✅", "REJECT": "❌", "MODIFY": "🔧"}.get(vote, "")
+                            st.markdown(f"**Vote: {badge} {vote}**")
+                        st.markdown(msg.content)
+
+        _render_round(tab_r1, 1)
+        _render_round(tab_r2, 2)
+        _render_round(tab_r3, 3)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # MAIN ENTRY POINT
 # ══════════════════════════════════════════════════════════════════════════════
 def render() -> None:
@@ -568,15 +972,19 @@ systematically outperform because:
 4. **Management Promises** — log and track commitments made at spin-off.
 5. **Thesis Tracker** — document your investment hypothesis and monitor it.
 6. **Cost Log** — track API and research costs per position.
+7. **Research Chat** — ask questions about the indexed company, grounded in SEC filings.
+8. **IC Debate** — three spinoff specialists debate your thesis using filing evidence.
 """)
 
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
         "📋 Spinoff Setup",
         "📄 SEC Documents",
         "🎯 Greenblatt Screen",
         "🤝 Management Promises",
         "📓 Thesis Tracker",
         "💰 Cost Log",
+        "💬 Research Chat",
+        "🏛️ IC Debate",
     ])
 
     with tab1:
@@ -591,3 +999,7 @@ systematically outperform because:
         _tab_thesis()
     with tab6:
         _tab_cost_log()
+    with tab7:
+        _tab_research_chat()
+    with tab8:
+        _tab_ic_debate()

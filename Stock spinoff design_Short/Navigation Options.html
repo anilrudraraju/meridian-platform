@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Meridian-SS Navigation Options</title>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0a0a0b;
+      color: #ededee;
+      font-family: 'Geist', sans-serif;
+      padding: 40px;
+    }
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+    .header {
+      margin-bottom: 40px;
+    }
+    .header h1 {
+      font-size: 32px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    .header p {
+      font-size: 14px;
+      color: #a4a4ad;
+      line-height: 1.6;
+    }
+    .options {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
+      margin-bottom: 40px;
+    }
+    .option {
+      background: #131316;
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 12px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    .option-title {
+      padding: 16px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      background: rgba(255,255,255,0.02);
+    }
+    .option-title h2 {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    .option-title p {
+      font-size: 11px;
+      color: #6e6e78;
+      line-height: 1.4;
+    }
+    .option-content {
+      padding: 20px;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .nav-section {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      background: rgba(255,255,255,0.03);
+      border-radius: 6px;
+      font-size: 13px;
+      cursor: pointer;
+      transition: background 120ms;
+      border: 1px solid transparent;
+    }
+    .nav-item:hover {
+      background: rgba(255,255,255,0.06);
+      border-color: rgba(255,255,255,0.1);
+    }
+    .nav-item.active {
+      background: rgba(70, 130, 180, 0.2);
+      border-color: rgba(70, 130, 180, 0.4);
+      color: #fff;
+    }
+    .nav-item-icon {
+      font-size: 12px;
+    }
+    .nav-sub {
+      padding-left: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .nav-sub-item {
+      font-size: 12px;
+      padding: 6px 8px;
+      color: #a4a4ad;
+      background: rgba(255,255,255,0.02);
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 120ms;
+    }
+    .nav-sub-item:hover {
+      background: rgba(255,255,255,0.05);
+      color: #ededee;
+    }
+    .pros-cons {
+      border-top: 1px solid rgba(255,255,255,0.06);
+      padding-top: 16px;
+      font-size: 12px;
+    }
+    .pros {
+      margin-bottom: 10px;
+    }
+    .pros-label, .cons-label {
+      font-weight: 600;
+      color: #a4a4ad;
+      margin-bottom: 4px;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .pros-label { color: #78c850; }
+    .cons-label { color: #ff6b5b; }
+    .pros-text, .cons-text {
+      font-size: 11px;
+      line-height: 1.5;
+      color: #a4a4ad;
+    }
+    .cons {
+      margin-bottom: 0;
+    }
+
+    /* Option 1 */
+    .o1-current { --color: #7c5cff; }
+    .o1-portfolio { --color: #2a6fdb; }
+    .o1-watchlist { --color: #f59e0b; }
+    .o1-journal { --color: #8b5cf6; }
+
+    /* Option 2 */
+    .o2-portfolio { --color: #2a6fdb; }
+    .o2-journal { --color: #8b5cf6; }
+    .o2-new { --color: #10b981; }
+
+    /* Option 3 */
+    .o3-portfolio { --color: #2a6fdb; }
+    .o3-journal { --color: #8b5cf6; }
+    .o3-new { --color: #10b981; }
+
+    .flow-diagram {
+      margin-top: 40px;
+      padding: 24px;
+      background: #131316;
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 12px;
+    }
+    .flow-diagram h3 {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 16px;
+    }
+    .flow-steps {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      font-size: 13px;
+    }
+    .step {
+      background: rgba(255,255,255,0.05);
+      padding: 8px 12px;
+      border-radius: 6px;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+    .step-arrow {
+      color: #a4a4ad;
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Investment Analysis Navigation</h1>
+      <p>Three organizational approaches for the Meridian-SS top-level structure. Each balances the 4-step analysis process with portfolio/watchlist/journal management differently.</p>
+    </div>
+
+    <div class="options">
+      <!-- OPTION 1 -->
+      <div class="option">
+        <div class="option-title">
+          <h2>Option 1: Process-Centric</h2>
+          <p>Sequential tabs mirror the workflow exactly</p>
+        </div>
+        <div class="option-content">
+          <div class="nav-section">
+            <div class="nav-item active o1-current">
+              <span class="nav-item-icon">⚙️</span>
+              Current Analysis
+            </div>
+            <div style="font-size: 10px; color: #6e6e78; padding: 0 10px;">The 4-step process</div>
+          </div>
+
+          <div class="nav-section">
+            <div class="nav-item o1-portfolio">
+              <span class="nav-item-icon">📊</span>
+              Portfolio
+            </div>
+            <div class="nav-sub">
+              <div class="nav-sub-item">All completed analyses</div>
+              <div class="nav-sub-item">Revisit & update</div>
+            </div>
+          </div>
+
+          <div class="nav-section">
+            <div class="nav-item o1-watchlist">
+              <span class="nav-item-icon">👁️</span>
+              Watchlist
+            </div>
+            <div class="nav-sub">
+              <div class="nav-sub-item">Tracking only</div>
+            </div>
+          </div>
+
+          <div class="nav-section">
+            <div class="nav-item o1-journal">
+              <span class="nav-item-icon">📖</span>
+              Decision Journal
+            </div>
+            <div class="nav-sub">
+              <div class="nav-sub-item">Trend insights</div>
+            </div>
+          </div>
+
+          <div class="pros-cons">
+            <div class="pros">
+              <div class="pros-label">✓ Pros</div>
+              <div class="pros-text">• Mirrors 4-step workflow<br/>• Clear mental model<br/>• Simple navigation</div>
+            </div>
+            <div class="cons">
+              <div class="cons-label">✗ Cons</div>
+              <div class="cons-text">• "Current Analysis" isolates work-in-progress<br/>• Portfolio feels secondary<br/>• Disconnects analysis from outcome</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- OPTION 2 -->
+      <div class="option">
+        <div class="option-title">
+          <h2>Option 2: Portfolio-First</h2>
+          <p>Portfolio hub organizes everything</p>
+        </div>
+        <div class="option-content">
+          <div class="nav-section">
+            <div class="nav-item active o2-portfolio">
+              <span class="nav-item-icon">📊</span>
+              Portfolio
+            </div>
+            <div class="nav-sub">
+              <div class="nav-sub-item">📌 Active (3)</div>
+              <div class="nav-sub-item">✓ Closed (12)</div>
+              <div class="nav-sub-item">👁️ Watching (8)</div>
+            </div>
+          </div>
+
+          <div class="nav-section">
+            <div class="nav-item o2-journal">
+              <span class="nav-item-icon">📖</span>
+              Decision Journal
+            </div>
+            <div class="nav-sub">
+              <div class="nav-sub-item">Trends & patterns</div>
+            </div>
+          </div>
+
+          <div class="nav-section">
+            <div class="nav-item o2-new">
+              <span class="nav-item-icon">➕</span>
+              New Analysis
+            </div>
+            <div class="nav-sub">
+              <div class="nav-sub-item">Start 4-step process</div>
+            </div>
+          </div>
+
+          <div class="pros-cons">
+            <div class="pros">
+              <div class="pros-label">✓ Pros</div>
+              <div class="pros-text">• Portfolio = source of truth<br/>• Natural mental model<br/>• Cleaner structure</div>
+            </div>
+            <div class="cons">
+              <div class="cons-label">✗ Cons</div>
+              <div class="cons-text">• 4-step process less visible<br/>• New users might not know where to start<br/>• Hides the workflow</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- OPTION 3 -->
+      <div class="option">
+        <div class="option-title">
+          <h2>Option 3: Hybrid (Recommended)</h2>
+          <p>Portfolio hub + modal analysis view</p>
+        </div>
+        <div class="option-content">
+          <div class="nav-section">
+            <div class="nav-item active o3-portfolio">
+              <span class="nav-item-icon">📊</span>
+              Portfolio Hub
+            </div>
+            <div class="nav-sub">
+              <div class="nav-sub-item">Active | Closed | Watching</div>
+              <div class="nav-sub-item">Cards show status</div>
+              <div class="nav-sub-item">Click → Workspace modal</div>
+            </div>
+          </div>
+
+          <div class="nav-section">
+            <div class="nav-item o3-journal">
+              <span class="nav-item-icon">📖</span>
+              Decision Journal
+            </div>
+            <div class="nav-sub">
+              <div class="nav-sub-item">Right sidebar or panel</div>
+            </div>
+          </div>
+
+          <div class="nav-section">
+            <div class="nav-item o3-new">
+              <span class="nav-item-icon">➕</span>
+              New Analysis
+            </div>
+            <div class="nav-sub">
+              <div class="nav-sub-item">Modal or separate view</div>
+            </div>
+          </div>
+
+          <div class="pros-cons">
+            <div class="pros">
+              <div class="pros-label">✓ Pros</div>
+              <div class="pros-text">• Portfolio central & always visible<br/>• 4-step process 1 click away<br/>• Keeps workflow low-friction<br/>• Journal accessible while analyzing</div>
+            </div>
+            <div class="cons">
+              <div class="cons-label">✗ Cons</div>
+              <div class="cons-text">• Requires solid modal/detail UX<br/>• Slightly more complex navigation</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="flow-diagram">
+      <h3>User Journey: Option 3 (Hybrid)</h3>
+      <div class="flow-steps">
+        <div class="step">👤 Login</div>
+        <div class="step-arrow">→</div>
+        <div class="step">📊 Portfolio Hub (see all holdings)</div>
+        <div class="step-arrow">→</div>
+        <div class="step">Click card</div>
+        <div class="step-arrow">→</div>
+        <div class="step">🔍 Workspace (5 dims, chat, committee, journal)</div>
+        <div class="step-arrow">→</div>
+        <div class="step">💾 Save & close</div>
+      </div>
+      <div style="margin-top: 16px; font-size: 12px; color: #a4a4ad; line-height: 1.6;">
+        Always visible: Decision Journal sidebar showing recent entries, trends, macro patterns. "+ New Analysis" button top-right starts a fresh 4-step flow.
+      </div>
+    </div>
+  </div>
+</body>
+</html>
