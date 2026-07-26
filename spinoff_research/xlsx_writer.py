@@ -170,11 +170,14 @@ def _write_extraction_sheet(wb: Workbook, conn: sqlite3.Connection, transaction_
                 ])
             else:
                 confidence_pct = row.confidence if row.confidence is not None else None
+                extraction_method_display = row.extraction_method or ""
+                if row.model_used:
+                    extraction_method_display += f" ({row.model_used})"
                 ws.append([
                     txn.label(), field_def.display_name, field_def.category,
                     field_def.extraction_category.value, row.raw_value or "",
                     row.status, "", confidence_pct if confidence_pct is not None else "",
-                    "", row.as_of_date or "", row.field_value_id,
+                    extraction_method_display, row.as_of_date or "", row.field_value_id,
                 ])
                 if row.sources:
                     citation_text = "\n\n".join(

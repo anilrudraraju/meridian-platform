@@ -35,6 +35,8 @@ class FieldReviewRow:
     numeric_value: Optional[float]
     confidence: Optional[float]
     as_of_date: Optional[str]
+    extraction_method: Optional[str] = None  # 'xbrl' | 'filing_metadata' | 'form4_aggregation' | 'market_data' | 'ai_assisted' — from field_extraction_runs, not field_values itself
+    model_used: Optional[str] = None         # populated only when extraction_method == 'ai_assisted'
     sources: List[SourceView] = dc_field(default_factory=list)
 
 
@@ -61,6 +63,10 @@ def load_review_rows(conn: sqlite3.Connection, transaction_id: int) -> List[Fiel
     result = []
     for row in rows:
         field_def = FIELD_BY_KEY.get(row["field_key"])
+        run_row = conn.execute(
+            "SELECT extraction_method, model_used FROM field_extraction_runs WHERE run_id = ?",
+            (row["run_id"],),
+        ).fetchone()
         source_rows = conn.execute(
             """SELECT fs.*, d.sec_url, d.filing_type FROM field_sources fs
                LEFT JOIN documents d ON fs.document_id = d.document_id
@@ -88,6 +94,8 @@ def load_review_rows(conn: sqlite3.Connection, transaction_id: int) -> List[Fiel
             numeric_value=row["numeric_value"],
             confidence=row["confidence"],
             as_of_date=row["as_of_date"],
+            extraction_method=run_row["extraction_method"] if run_row else None,
+            model_used=run_row["model_used"] if run_row else None,
             sources=sources,
         ))
     return result

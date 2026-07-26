@@ -64,6 +64,36 @@ class TestXlsxWriter(unittest.TestCase):
         self.assertEqual(found[0][value_col], "True")
         self.assertEqual(found[0][status_col], "extracted_high_confidence")
 
+    def test_extraction_method_column_populated(self):
+        """Regression: this column was previously always blank — see
+        review_data.py's load_review_rows fix."""
+        result = ExtractedFieldValue(
+            field_key="form_10_availability", extraction_method="filing_metadata",
+            status=FieldStatus.EXTRACTED_HIGH_CONFIDENCE, raw_value="True",
+        )
+        persist_field_value(self.conn, self.txn.transaction_id, result)
+        out = write_workbook(self.conn, [self.txn.transaction_id], Path(self._tmpdir.name) / "out.xlsx")
+        wb = load_workbook(out)
+        ws = wb["Extraction"]
+        headers = [c.value for c in ws[1]]
+        field_col, method_col = headers.index("Field"), headers.index("Extraction Method")
+        found = [r for r in ws.iter_rows(min_row=2, values_only=True) if r[field_col] == "Form 10 availability"]
+        self.assertEqual(found[0][method_col], "filing_metadata")
+
+    def test_extraction_method_includes_model_for_ai_assisted_fields(self):
+        result = ExtractedFieldValue(
+            field_key="ceo_came_from_parent", extraction_method="ai_assisted",
+            status=FieldStatus.EXTRACTED_HIGH_CONFIDENCE, raw_value="True", model_used="claude-haiku-4-5",
+        )
+        persist_field_value(self.conn, self.txn.transaction_id, result)
+        out = write_workbook(self.conn, [self.txn.transaction_id], Path(self._tmpdir.name) / "out.xlsx")
+        wb = load_workbook(out)
+        ws = wb["Extraction"]
+        headers = [c.value for c in ws[1]]
+        field_col, method_col = headers.index("Field"), headers.index("Extraction Method")
+        found = [r for r in ws.iter_rows(min_row=2, values_only=True) if r[field_col] == "Did the CEO come from the parent?"]
+        self.assertEqual(found[0][method_col], "ai_assisted (claude-haiku-4-5)")
+
     def test_source_citation_becomes_cell_comment(self):
         result = ExtractedFieldValue(
             field_key="form_10_availability", extraction_method="filing_metadata",

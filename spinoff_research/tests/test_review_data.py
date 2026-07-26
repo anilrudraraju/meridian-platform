@@ -30,6 +30,32 @@ class TestReviewData(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0].display_name, "Form 10 availability")
 
+    def test_load_review_rows_populates_extraction_method(self):
+        """Regression: FieldReviewRow previously never carried
+        extraction_method through from field_extraction_runs, so
+        xlsx_writer.py's 'Extraction Method' column rendered blank for
+        every field."""
+        result = ExtractedFieldValue(field_key="spinoff_debt", extraction_method="xbrl", status=FieldStatus.EXTRACTED_HIGH_CONFIDENCE, raw_value="129000000")
+        persist_field_value(self.conn, 1, result)
+        rows = load_review_rows(self.conn, 1)
+        self.assertEqual(rows[0].extraction_method, "xbrl")
+
+    def test_load_review_rows_populates_model_used_for_ai_assisted(self):
+        result = ExtractedFieldValue(
+            field_key="ceo_came_from_parent", extraction_method="ai_assisted",
+            status=FieldStatus.EXTRACTED_HIGH_CONFIDENCE, raw_value="True", model_used="claude-haiku-4-5",
+        )
+        persist_field_value(self.conn, 1, result)
+        rows = load_review_rows(self.conn, 1)
+        self.assertEqual(rows[0].extraction_method, "ai_assisted")
+        self.assertEqual(rows[0].model_used, "claude-haiku-4-5")
+
+    def test_model_used_is_none_for_non_ai_fields(self):
+        result = ExtractedFieldValue(field_key="spinoff_debt", extraction_method="xbrl", status=FieldStatus.EXTRACTED_HIGH_CONFIDENCE)
+        persist_field_value(self.conn, 1, result)
+        rows = load_review_rows(self.conn, 1)
+        self.assertIsNone(rows[0].model_used)
+
     def test_load_review_rows_joins_sources(self):
         result = ExtractedFieldValue(
             field_key="spinoff_debt", extraction_method="xbrl", status=FieldStatus.EXTRACTED_HIGH_CONFIDENCE,
