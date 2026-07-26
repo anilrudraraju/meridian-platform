@@ -14,7 +14,7 @@ work, or in calculated's case, blocked on Phase 6 fields existing first.
 """
 import sqlite3
 from dataclasses import dataclass
-from typing import List
+from typing import List, Optional, Set
 
 from spinoff_research.extraction import ExtractedFieldValue, persist_field_value
 from spinoff_research.models import SpinoffTransaction
@@ -43,7 +43,11 @@ class ExtractionRunSummary:
         return counts
 
 
-def run_deterministic_extraction(conn: sqlite3.Connection, transaction: SpinoffTransaction) -> ExtractionRunSummary:
+def run_deterministic_extraction(
+    conn: sqlite3.Connection,
+    transaction: SpinoffTransaction,
+    skip_field_keys: Optional[Set[str]] = None,
+) -> ExtractionRunSummary:
     """
     transaction must already be persisted (transaction.transaction_id set
     — see repository.get_or_create_transaction). Requires
@@ -51,10 +55,19 @@ def run_deterministic_extraction(conn: sqlite3.Connection, transaction: SpinoffT
     transaction.spinoff_date to be populated for most extractors to run;
     fields that need a CIK/date not yet known are skipped with an error
     logged, not silently dropped.
+
+    skip_field_keys: field_keys to never re-extract, even if their inputs
+    are available — the CLI's re-run mode uses this to keep
+    Rich-approved fields locked in (see cli.py). Extraction calls that
+    produce multiple fields at once (XBRL, Form 4) still run if ANY of
+    their fields aren't skipped, but the skipped ones are filtered out of
+    the persisted results afterward — cheaper to filter post-hoc than to
+    add skip-awareness inside every extractor function.
     """
     if transaction.transaction_id is None:
         raise ValueError("transaction must be persisted first (transaction_id is None)")
 
+    skip = skip_field_keys or set()
     results: List[ExtractedFieldValue] = []
     errors: List[str] = []
 
@@ -76,43 +89,58 @@ def run_deterministic_extraction(conn: sqlite3.Connection, transaction: SpinoffT
     else:
         errors.append("spinoff.ticker missing — skipped spinoff_company_name/spinoff_ticker")
 
-    if spinoff_cik:
-        results.append(extract_form_10_availability(spinoff_cik))
-    else:
-        errors.append("spinoff.cik missing — skipped form_10_availability")
+    if "form_10_availability" not in skip:
+        if spinoff_cik:
+            results.append(extract_form_10_availability(spinoff_cik))
+        else:
+            errors.append("spinoff.cik missing — skipped form_10_availability")
 
     # ── XBRL (snapshot fields need distribution_date; last_year_sales needs announcement_date) ──
     if spinoff_cik and dist_date:
-        results.append(extract_xbrl_field("spinoff_shares_outstanding", spinoff_cik, distribution_date=dist_date))
-        results.append(extract_xbrl_field("spinoff_debt", spinoff_cik, distribution_date=dist_date))
+        if "spinoff_shares_outstanding" not in skip:
+            results.append(extract_xbrl_field("spinoff_shares_outstanding", spinoff_cik, distribution_date=dist_date))
+        if "spinoff_debt" not in skip:
+            results.append(extract_xbrl_field("spinoff_debt", spinoff_cik, distribution_date=dist_date))
     else:
         errors.append("spinoff.cik or spinoff_date missing — skipped spinoff_shares_outstanding/spinoff_debt")
 
     if parent_cik and dist_date:
-        results.append(extract_xbrl_field("parent_shares_outstanding", parent_cik, distribution_date=dist_date))
+        if "parent_shares_outstanding" not in skip:
+            results.append(extract_xbrl_field("parent_shares_outstanding", parent_cik, distribution_date=dist_date))
     else:
         errors.append("parent.cik or spinoff_date missing — skipped parent_shares_outstanding")
 
     if spinoff_cik and ann_date:
-        results.append(extract_xbrl_field("last_year_sales", spinoff_cik, announcement_date=ann_date))
+        if "last_year_sales" not in skip:
+            results.append(extract_xbrl_field("last_year_sales", spinoff_cik, announcement_date=ann_date))
     else:
         errors.append("spinoff.cik or announcement_date missing — skipped last_year_sales")
 
     # ── Form 4 insider buying (single aggregation pass, 3 fields) ───────────
+    _insider_keys = {"insider_buying_within_3mo", "cluster_insider_buying_within_3mo", "insider_buyer_count"}
     if spinoff_cik and dist_date:
-        results.extend(extract_insider_buying_fields(spinoff_cik, distribution_date=dist_date))
+        if not _insider_keys.issubset(skip):
+            insider_results = extract_insider_buying_fields(spinoff_cik, distribution_date=dist_date)
+            results.extend(r for r in insider_results if r.field_key not in skip)
     else:
         errors.append("spinoff.cik or spinoff_date missing — skipped insider buying fields")
 
     # ── yFinance (sector/industry + share price) ─────────────────────────────
     if transaction.parent.ticker:
-        results.extend(extract_sector_industry(transaction.parent.ticker, "parent"))
+        parent_sector_results = extract_sector_industry(transaction.parent.ticker, "parent")
+        results.extend(r for r in parent_sector_results if r.field_key not in skip)
     if transaction.spinoff.ticker:
-        results.extend(extract_sector_industry(transaction.spinoff.ticker, "spinoff"))
-    if transaction.parent.ticker and dist_date:
+        spinoff_sector_results = extract_sector_industry(transaction.spinoff.ticker, "spinoff")
+        results.extend(r for r in spinoff_sector_results if r.field_key not in skip)
+    if transaction.parent.ticker and dist_date and "parent_share_price" not in skip:
         results.append(extract_share_price(transaction.parent.ticker, "parent_share_price", dist_date))
-    if transaction.spinoff.ticker and dist_date:
+    if transaction.spinoff.ticker and dist_date and "spinoff_share_price" not in skip:
         results.append(extract_share_price(transaction.spinoff.ticker, "spinoff_share_price", dist_date))
+
+    # Company identity fields (name/ticker) have no dedicated skip check
+    # above since they're near-static and cheap — filter here too for
+    # consistency, so skip_field_keys behaves uniformly across ALL fields.
+    results = [r for r in results if r.field_key not in skip]
 
     for result in results:
         persist_field_value(conn, transaction.transaction_id, result)
