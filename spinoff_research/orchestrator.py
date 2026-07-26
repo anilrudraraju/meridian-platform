@@ -7,10 +7,10 @@ transaction and wrote field_values rows. run_deterministic_extraction()
 is that call.
 
 Covers the 19 fields with a proven mechanism (see field_data_dictionary.py
-and the extractors/ package) — NOT all 47. AI-assisted fields (21),
-calculated fields (4), and the non-Form-4 scheduled fields (tsr,
-dividend_initiated_within_12mo, resources) are out of scope here; Phase 6+
-work, or in calculated's case, blocked on Phase 6 fields existing first.
+and the extractors/ package) plus, as of Phase 6, the first AI-assisted
+field (ceo_came_from_parent). The other 20 AI-assisted fields, 4
+calculated fields, and non-Form-4 scheduled fields (tsr,
+dividend_initiated_within_12mo, resources) remain out of scope.
 """
 import sqlite3
 from dataclasses import dataclass
@@ -23,6 +23,7 @@ from spinoff_research.extractors.filing_metadata import extract_form_10_availabi
 from spinoff_research.extractors.xbrl import extract_xbrl_field
 from spinoff_research.extractors.form4 import extract_insider_buying_fields
 from spinoff_research.extractors.market_data import extract_sector_industry, extract_share_price
+from spinoff_research.extractors.ai_assisted import extract_ceo_came_from_parent
 
 
 @dataclass
@@ -136,6 +137,14 @@ def run_deterministic_extraction(
         results.append(extract_share_price(transaction.parent.ticker, "parent_share_price", dist_date))
     if transaction.spinoff.ticker and dist_date and "spinoff_share_price" not in skip:
         results.append(extract_share_price(transaction.spinoff.ticker, "spinoff_share_price", dist_date))
+
+    # ── AI-assisted (Phase 6 proof case: ceo_came_from_parent) ──────────────
+    if spinoff_cik and "ceo_came_from_parent" not in skip:
+        results.append(extract_ceo_came_from_parent(
+            conn, transaction.transaction_id, spinoff_cik, transaction.spinoff.name,
+        ))
+    elif "ceo_came_from_parent" not in skip:
+        errors.append("spinoff.cik missing — skipped ceo_came_from_parent")
 
     # Company identity fields (name/ticker) have no dedicated skip check
     # above since they're near-static and cheap — filter here too for

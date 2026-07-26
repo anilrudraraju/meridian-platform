@@ -23,6 +23,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
+from spinoff_research.cost_tracking import read_log, total_cost_usd
 from spinoff_research.db import init_db
 from spinoff_research.models import Company, SpinoffTransaction
 from spinoff_research.repository import get_or_create_transaction, get_transaction
@@ -74,6 +75,7 @@ def cmd_extract(args: argparse.Namespace) -> int:
     out_dir = Path(args.out_dir)
     run_log: List[RunLogEntry] = []
     transaction_ids: List[int] = []
+    run_started_at = datetime.now().isoformat()
 
     if args.resume:
         print(f"Re-ingesting reviewed workbook: {args.resume}")
@@ -160,6 +162,13 @@ def cmd_extract(args: argparse.Namespace) -> int:
     out_path = _next_version_path(out_dir)
     write_workbook(conn, transaction_ids, out_path, run_log=run_log)
     print(f"\nWorkbook written: {out_path}")
+
+    this_run_calls = read_log(since=run_started_at)
+    if this_run_calls:
+        this_run_cost = sum(c["cost_usd"] for c in this_run_calls)
+        print(f"\nAI cost — this run: ${this_run_cost:.4f} ({len(this_run_calls)} call(s))  |  "
+              f"lifetime total: ${total_cost_usd():.4f}")
+
     return 0
 
 
