@@ -6,6 +6,8 @@ from spinoff_research.tests.fixtures.sample_company_facts import (
     FACTS_DEBT_CONFLICT,
     FACTS_REVENUE_DURATION_FALSE_CONFLICT,
     FACTS_SHARES_DRIFT_OVER_TIME,
+    FACTS_SHARES_ZERO_PRE_SPIN,
+    FACTS_SHARES_ALL_ZERO,
     FACTS_EMPTY,
 )
 from spinoff_research.xbrl_service import (
@@ -115,6 +117,33 @@ class TestResolveFieldForTransactionSnapshot(unittest.TestCase):
     def test_snapshot_field_without_distribution_date_raises(self):
         with self.assertRaises(XbrlServiceError):
             resolve_field_for_transaction(FACTS_SHARES_AGREE, "spinoff_shares_outstanding")
+
+    def test_prefers_nonzero_over_nearer_zero_candidate(self):
+        """
+        Regression for a real finding: Grail's spinoff_shares_outstanding
+        picked a pre-spin period_end (2 days before distribution, 0 shares
+        — the entity had no public shares yet) over a real post-spin value
+        5 days after, purely because 2 days < 5 days. A snapshot of exactly
+        0 right before a spin-off distribution is a pre-existence artifact,
+        not a meaningful answer, and must not win over a real value further
+        away but still in tolerance.
+        """
+        result = resolve_field_for_transaction(
+            FACTS_SHARES_ZERO_PRE_SPIN, "spinoff_shares_outstanding",
+            distribution_date="2024-06-25",
+        )
+        self.assertEqual(result.selected.value, 31049148)
+        self.assertNotEqual(result.selected.value, 0)
+
+    def test_falls_back_to_zero_when_every_candidate_is_zero(self):
+        """The zero-avoidance preference must not mask a field that is
+        genuinely zero throughout the entire tolerance window — that's a
+        real (if uninteresting) answer, not a bug to hide."""
+        result = resolve_field_for_transaction(
+            FACTS_SHARES_ALL_ZERO, "spinoff_shares_outstanding",
+            distribution_date="2024-06-25",
+        )
+        self.assertEqual(result.selected.value, 0)
 
     def test_no_candidates_at_all_is_not_found(self):
         result = resolve_field_for_transaction(FACTS_EMPTY, "spinoff_debt", distribution_date="2024-01-01")

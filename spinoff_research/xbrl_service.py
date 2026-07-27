@@ -390,7 +390,19 @@ def _resolve_snapshot_field(
             ),
         )
 
-    nearest_in_tolerance = min(in_tolerance, key=_days_from_anchor)
+    # Prefer a nonzero candidate over the literal nearest-by-days one. A
+    # snapshot fact of exactly 0 right before a spin-off distribution is
+    # near-certainly a pre-existence artifact (the entity has no publicly
+    # issued shares/balances yet), not a real "0" — confirmed live: Grail's
+    # spinoff_shares_outstanding picked a period_end 2 days BEFORE
+    # distribution reporting 0 shares over one 5 days AFTER reporting the
+    # real post-distribution count (31,049,148), purely because 2 < 5 days.
+    # Falls back to the plain nearest-by-days pick (which may be 0) only if
+    # every in-tolerance candidate is 0 — a field that's genuinely zero
+    # throughout the window shouldn't be masked by this preference.
+    nonzero_in_tolerance = [c for c in in_tolerance if c.value != 0]
+    ranked = nonzero_in_tolerance or in_tolerance
+    nearest_in_tolerance = min(ranked, key=_days_from_anchor)
     return _select_from_candidates(field_key, in_tolerance, period_end=nearest_in_tolerance.period_end)
 
 

@@ -80,6 +80,41 @@ FACTS_SHARES_DRIFT_OVER_TIME = {
     }
 }
 
+# A pre-spin snapshot reports a literal 0 (entity has no publicly issued
+# shares yet) closer in days to the anchor than a real post-spin value —
+# confirmed live against Grail: 2024-06-23 (2 days before distribution)
+# reports 0 shares; 2024-06-30 (5 days after) reports the real
+# post-distribution count of 31,049,148. Distance-only tie-breaking picks
+# the closer-but-meaningless 0.
+FACTS_SHARES_ZERO_PRE_SPIN = {
+    "facts": {
+        "us-gaap": {
+            "CommonStockSharesOutstanding": {
+                "units": {"shares": [
+                    {"end": "2024-06-23", "val": 0, "accn": "0001-24-000030", "form": "10-Q", "filed": "2024-08-13"},
+                    {"end": "2024-06-30", "val": 31049148, "accn": "0001-24-000031", "form": "10-Q", "filed": "2024-08-13"},
+                ]}
+            }
+        }
+    }
+}
+
+# Every in-tolerance candidate is genuinely 0 — the zero-avoidance
+# preference must not mask this by reaching outside the tolerance window
+# or otherwise fabricating a nonzero answer.
+FACTS_SHARES_ALL_ZERO = {
+    "facts": {
+        "us-gaap": {
+            "CommonStockSharesOutstanding": {
+                "units": {"shares": [
+                    {"end": "2024-06-23", "val": 0, "accn": "0001-24-000030", "form": "10-Q", "filed": "2024-08-13"},
+                    {"end": "2024-06-24", "val": 0, "accn": "0001-24-000032", "form": "10-Q", "filed": "2024-08-13"},
+                ]}
+            }
+        }
+    }
+}
+
 # No candidates at all for a field/concept combination.
 FACTS_EMPTY = {"facts": {"us-gaap": {}}}
 
