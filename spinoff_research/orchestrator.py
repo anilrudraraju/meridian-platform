@@ -7,10 +7,11 @@ transaction and wrote field_values rows. run_deterministic_extraction()
 is that call.
 
 Covers the 19 fields with a proven mechanism (see field_data_dictionary.py
-and the extractors/ package) plus, as of Phase 6, the first AI-assisted
-field (ceo_came_from_parent). The other 20 AI-assisted fields, 4
-calculated fields, and non-Form-4 scheduled fields (tsr,
-dividend_initiated_within_12mo, resources) remain out of scope.
+and the extractors/ package) plus 6 AI-assisted bool fields sharing the
+Form 10 + Exhibit 99.1 retrieval path (see extractors/ai_assisted.py's
+_BOOL_FIELD_CONFIGS). The remaining ~15 AI-assisted fields (numeric/tenure,
+non-Form-10 source types), 4 calculated fields, and non-Form-4 scheduled
+fields (tsr, dividend_initiated_within_12mo, resources) remain out of scope.
 """
 import sqlite3
 from dataclasses import dataclass
@@ -23,7 +24,7 @@ from spinoff_research.extractors.filing_metadata import extract_form_10_availabi
 from spinoff_research.extractors.xbrl import extract_xbrl_field
 from spinoff_research.extractors.form4 import extract_insider_buying_fields
 from spinoff_research.extractors.market_data import extract_sector_industry, extract_share_price
-from spinoff_research.extractors.ai_assisted import extract_ceo_came_from_parent
+from spinoff_research.extractors.ai_assisted import extract_form10_bool_field, _BOOL_FIELD_BY_KEY
 
 
 @dataclass
@@ -138,13 +139,16 @@ def run_deterministic_extraction(
     if transaction.spinoff.ticker and dist_date and "spinoff_share_price" not in skip:
         results.append(extract_share_price(transaction.spinoff.ticker, "spinoff_share_price", dist_date))
 
-    # ── AI-assisted (Phase 6 proof case: ceo_came_from_parent) ──────────────
-    if spinoff_cik and "ceo_came_from_parent" not in skip:
-        results.append(extract_ceo_came_from_parent(
-            conn, transaction.transaction_id, spinoff_cik, transaction.spinoff.name,
-        ))
-    elif "ceo_came_from_parent" not in skip:
-        errors.append("spinoff.cik missing — skipped ceo_came_from_parent")
+    # ── AI-assisted (bool fields over Form 10 + Exhibit 99.1) ───────────────
+    for field_key in _BOOL_FIELD_BY_KEY:
+        if field_key in skip:
+            continue
+        if spinoff_cik:
+            results.append(extract_form10_bool_field(
+                conn, transaction.transaction_id, spinoff_cik, transaction.spinoff.name, field_key,
+            ))
+        else:
+            errors.append(f"spinoff.cik missing — skipped {field_key}")
 
     # Company identity fields (name/ticker) have no dedicated skip check
     # above since they're near-static and cheap — filter here too for
